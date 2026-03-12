@@ -20,7 +20,16 @@ void UartSequence_Init(
     UART_HandleTypeDef *huart,
     uint32_t period_ms);
 
-void UartSequence_Task(UartSequence_HandleTypeDef *handle);
+void UartSequence_Task(
+    UartSequence_HandleTypeDef *handle,
+    uint16_t adc1_value,
+    uint16_t adc2_value,
+    int32_t enc1_count,
+    int32_t enc2_count,
+    uint32_t enc1_angle_x10000,
+    uint32_t enc2_angle_x10000,
+    uint8_t motor_1_mode,
+    uint8_t motor_2_mode);
 
 #ifdef __cplusplus
 }

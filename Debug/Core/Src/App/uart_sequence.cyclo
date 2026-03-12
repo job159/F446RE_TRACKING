@@ -1,4 +1,7 @@
-../Core/Src/App/uart_sequence.c:3:17:UartSequence_AppendText	2
-../Core/Src/App/uart_sequence.c:18:17:UartSequence_AppendU32	5
-../Core/Src/App/uart_sequence.c:44:6:UartSequence_Init	3
-../Core/Src/App/uart_sequence.c:60:6:UartSequence_Task	5
+../Core/Src/App/uart_sequence.c:7:17:UartSequence_AppendText	3
+../Core/Src/App/uart_sequence.c:23:17:UartSequence_AppendU32	5
+../Core/Src/App/uart_sequence.c:49:17:UartSequence_AppendS32	2
+../Core/Src/App/uart_sequence.c:71:17:UartSequence_AppendFixedWidthU32	5
+../Core/Src/App/uart_sequence.c:106:17:UartSequence_AppendAngleX10000	1
+../Core/Src/App/uart_sequence.c:125:6:UartSequence_Init	3
+../Core/Src/App/uart_sequence.c:141:6:UartSequence_Task	5

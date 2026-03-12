@@ -1,5 +1,5 @@
-Core/Src/App/app_main.o: ../Core/Src/App/app_main.c \
- ../Core/Inc/App/app_main.h ../Core/Inc/main.h \
+Core/Src/App/app_encoder.o: ../Core/Src/App/app_encoder.c \
+ ../Core/Inc/App/app_encoder.h ../Core/Inc/main.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h \
  ../Core/Inc/stm32f4xx_hal_conf.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_rcc.h \
@@ -30,10 +30,8 @@ Core/Src/App/app_main.o: ../Core/Src/App/app_main.c \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_pwr_ex.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h \
- C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h \
- ../Core/Inc/App/app_adc.h ../Core/Inc/App/app_encoder.h \
- ../Core/Inc/App/stepper_tmc2209.h ../Core/Inc/App/uart_sequence.h
-../Core/Inc/App/app_main.h:
+ C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h
+../Core/Inc/App/app_encoder.h:
 ../Core/Inc/main.h:
 C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
@@ -66,7 +64,3 @@ C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HA
 C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim.h:
 C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h:
 C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h:
-../Core/Inc/App/app_adc.h:
-../Core/Inc/App/app_encoder.h:
-../Core/Inc/App/stepper_tmc2209.h:
-../Core/Inc/App/uart_sequence.h:

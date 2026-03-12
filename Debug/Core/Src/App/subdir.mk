@@ -5,16 +5,22 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../Core/Src/App/app_adc.c \
+../Core/Src/App/app_encoder.c \
 ../Core/Src/App/app_main.c \
 ../Core/Src/App/stepper_tmc2209.c \
 ../Core/Src/App/uart_sequence.c 
 
 OBJS += \
+./Core/Src/App/app_adc.o \
+./Core/Src/App/app_encoder.o \
 ./Core/Src/App/app_main.o \
 ./Core/Src/App/stepper_tmc2209.o \
 ./Core/Src/App/uart_sequence.o 
 
 C_DEPS += \
+./Core/Src/App/app_adc.d \
+./Core/Src/App/app_encoder.d \
 ./Core/Src/App/app_main.d \
 ./Core/Src/App/stepper_tmc2209.d \
 ./Core/Src/App/uart_sequence.d 
@@ -27,7 +33,7 @@ Core/Src/App/%.o Core/Src/App/%.su Core/Src/App/%.cyclo: ../Core/Src/App/%.c Cor
 clean: clean-Core-2f-Src-2f-App
 
 clean-Core-2f-Src-2f-App:
-	-$(RM) ./Core/Src/App/app_main.cyclo ./Core/Src/App/app_main.d ./Core/Src/App/app_main.o ./Core/Src/App/app_main.su ./Core/Src/App/stepper_tmc2209.cyclo ./Core/Src/App/stepper_tmc2209.d ./Core/Src/App/stepper_tmc2209.o ./Core/Src/App/stepper_tmc2209.su ./Core/Src/App/uart_sequence.cyclo ./Core/Src/App/uart_sequence.d ./Core/Src/App/uart_sequence.o ./Core/Src/App/uart_sequence.su
+	-$(RM) ./Core/Src/App/app_adc.cyclo ./Core/Src/App/app_adc.d ./Core/Src/App/app_adc.o ./Core/Src/App/app_adc.su ./Core/Src/App/app_encoder.cyclo ./Core/Src/App/app_encoder.d ./Core/Src/App/app_encoder.o ./Core/Src/App/app_encoder.su ./Core/Src/App/app_main.cyclo ./Core/Src/App/app_main.d ./Core/Src/App/app_main.o ./Core/Src/App/app_main.su ./Core/Src/App/stepper_tmc2209.cyclo ./Core/Src/App/stepper_tmc2209.d ./Core/Src/App/stepper_tmc2209.o ./Core/Src/App/stepper_tmc2209.su ./Core/Src/App/uart_sequence.cyclo ./Core/Src/App/uart_sequence.d ./Core/Src/App/uart_sequence.o ./Core/Src/App/uart_sequence.su
 
 .PHONY: clean-Core-2f-Src-2f-App
 

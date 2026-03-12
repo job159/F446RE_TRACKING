@@ -1,3 +1,5 @@
+"./Core/Src/App/app_adc.o"
+"./Core/Src/App/app_encoder.o"
 "./Core/Src/App/app_main.o"
 "./Core/Src/App/stepper_tmc2209.o"
 "./Core/Src/App/uart_sequence.o"

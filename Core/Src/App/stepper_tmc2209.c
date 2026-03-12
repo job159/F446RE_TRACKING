@@ -8,6 +8,15 @@
 #define TMC2209_REG_CHOPCONF 0x6CU
 #define TMC2209_REG_PWMCONF 0x70U
 
+#define TMC2209_FRAME_LEN 8U
+#define TMC2209_FRAME_CRC_INPUT_LEN 7U
+#define TMC2209_UART_TIMEOUT_MS 30U
+#define TMC2209_REG_WRITE_DELAY_MS 1U
+#define TMC2209_DRIVER_WAKEUP_DELAY_MS 2U
+#define TMC2209_FRAME_DATA_MSB_SHIFT 24U
+#define TMC2209_FRAME_DATA_BYTE2_SHIFT 16U
+#define TMC2209_FRAME_DATA_BYTE1_SHIFT 8U
+
 static uint8_t StepperTmc2209_Crc8(const uint8_t *data, uint8_t data_len)
 {
   uint8_t crc = 0U;
@@ -73,18 +82,18 @@ static HAL_StatusTypeDef StepperTmc2209_WriteRegister(
     uint8_t reg_addr,
     uint32_t reg_data)
 {
-  uint8_t tx_frame[8];
+  uint8_t tx_frame[TMC2209_FRAME_LEN];
 
   tx_frame[0] = TMC2209_SYNC_BYTE;
   tx_frame[1] = handle->slave_address;
   tx_frame[2] = (uint8_t)(reg_addr | TMC2209_WRITE_ACCESS);
-  tx_frame[3] = (uint8_t)((reg_data >> 24U) & 0xFFU);
-  tx_frame[4] = (uint8_t)((reg_data >> 16U) & 0xFFU);
-  tx_frame[5] = (uint8_t)((reg_data >> 8U) & 0xFFU);
+  tx_frame[3] = (uint8_t)((reg_data >> TMC2209_FRAME_DATA_MSB_SHIFT) & 0xFFU);
+  tx_frame[4] = (uint8_t)((reg_data >> TMC2209_FRAME_DATA_BYTE2_SHIFT) & 0xFFU);
+  tx_frame[5] = (uint8_t)((reg_data >> TMC2209_FRAME_DATA_BYTE1_SHIFT) & 0xFFU);
   tx_frame[6] = (uint8_t)(reg_data & 0xFFU);
-  tx_frame[7] = StepperTmc2209_Crc8(tx_frame, 7U);
+  tx_frame[7] = StepperTmc2209_Crc8(tx_frame, TMC2209_FRAME_CRC_INPUT_LEN);
 
-  return HAL_UART_Transmit(handle->huart_tmc, tx_frame, 8U, 30U);
+  return HAL_UART_Transmit(handle->huart_tmc, tx_frame, TMC2209_FRAME_LEN, TMC2209_UART_TIMEOUT_MS);
 }
 
 static HAL_StatusTypeDef StepperTmc2209_ConfigDefaultRegisters(
@@ -98,7 +107,7 @@ static HAL_StatusTypeDef StepperTmc2209_ConfigDefaultRegisters(
     return status;
   }
 
-  HAL_Delay(1U);
+  HAL_Delay(TMC2209_REG_WRITE_DELAY_MS);
 
   status = StepperTmc2209_WriteRegister(handle, TMC2209_REG_IHOLD_IRUN, 0x00041F08U);
   if (status != HAL_OK)
@@ -106,7 +115,7 @@ static HAL_StatusTypeDef StepperTmc2209_ConfigDefaultRegisters(
     return status;
   }
 
-  HAL_Delay(1U);
+  HAL_Delay(TMC2209_REG_WRITE_DELAY_MS);
 
   status = StepperTmc2209_WriteRegister(handle, TMC2209_REG_CHOPCONF, 0x10000053U);
   if (status != HAL_OK)
@@ -114,7 +123,7 @@ static HAL_StatusTypeDef StepperTmc2209_ConfigDefaultRegisters(
     return status;
   }
 
-  HAL_Delay(1U);
+  HAL_Delay(TMC2209_REG_WRITE_DELAY_MS);
 
   return StepperTmc2209_WriteRegister(handle, TMC2209_REG_PWMCONF, 0xC10D0024U);
 }
@@ -174,13 +183,14 @@ HAL_StatusTypeDef StepperTmc2209_Init(
     const uint16_t speed_table_hz[STEPPER_TMC2209_SPEED_STAGE_COUNT])
 {
   HAL_StatusTypeDef status;
+  const uint16_t *source_speed_table;
   uint8_t i;
   static const uint16_t default_speed_table[STEPPER_TMC2209_SPEED_STAGE_COUNT] = {
-      200U, 400U, 700U, 1000U, 1400U,
-      200U, 400U, 700U, 1000U, 1400U};
+      200U, 1400U,
+      200U, 1400U};
 
-  if ((handle == (void *)0) || (htim_step == (void *)0) || (huart_tmc == (void *)0) ||
-      (dir_gpio_port == (void *)0) || (en_gpio_port == (void *)0))
+  if ((handle == NULL) || (htim_step == NULL) || (huart_tmc == NULL) ||
+      (dir_gpio_port == NULL) || (en_gpio_port == NULL))
   {
     return HAL_ERROR;
   }
@@ -194,22 +204,16 @@ HAL_StatusTypeDef StepperTmc2209_Init(
   handle->en_pin = en_pin;
   handle->slave_address = slave_address;
   handle->speed_index = 0U;
+  source_speed_table = (speed_table_hz != NULL) ? speed_table_hz : default_speed_table;
 
   for (i = 0U; i < STEPPER_TMC2209_SPEED_STAGE_COUNT; i++)
   {
-    if (speed_table_hz != (const uint16_t *)0)
-    {
-      handle->speed_hz[i] = speed_table_hz[i];
-    }
-    else
-    {
-      handle->speed_hz[i] = default_speed_table[i];
-    }
+    handle->speed_hz[i] = source_speed_table[i];
   }
 
   HAL_GPIO_WritePin(handle->en_gpio_port, handle->en_pin, STEPPER_TMC2209_DISABLE);
   HAL_GPIO_WritePin(handle->dir_gpio_port, handle->dir_pin, STEPPER_TMC2209_DIR_FORWARD);
-  HAL_Delay(2U);
+  HAL_Delay(TMC2209_DRIVER_WAKEUP_DELAY_MS);
 
   status = StepperTmc2209_ConfigDefaultRegisters(handle);
   if (status != HAL_OK)
@@ -234,7 +238,7 @@ HAL_StatusTypeDef StepperTmc2209_SetSpeedStage(
 {
   HAL_StatusTypeDef status;
 
-  if ((handle == (void *)0) || (stage >= STEPPER_TMC2209_SPEED_STAGE_COUNT))
+  if ((handle == NULL) || (stage >= STEPPER_TMC2209_SPEED_STAGE_COUNT))
   {
     return HAL_ERROR;
   }
@@ -262,16 +266,12 @@ HAL_StatusTypeDef StepperTmc2209_NextSpeedStage(
 {
   uint8_t next_stage;
 
-  if (handle == (void *)0)
+  if (handle == NULL)
   {
     return HAL_ERROR;
   }
 
-  next_stage = (uint8_t)(handle->speed_index + 1U);
-  if (next_stage >= STEPPER_TMC2209_SPEED_STAGE_COUNT)
-  {
-    next_stage = 0U;
-  }
+  next_stage = (uint8_t)((handle->speed_index + 1U) % STEPPER_TMC2209_SPEED_STAGE_COUNT);
 
   return StepperTmc2209_SetSpeedStage(handle, next_stage);
 }
@@ -280,7 +280,7 @@ void StepperTmc2209_SetDirection(
     StepperTmc2209_HandleTypeDef *handle,
     GPIO_PinState direction_state)
 {
-  if (handle == (void *)0)
+  if (handle == NULL)
   {
     return;
   }
@@ -292,7 +292,7 @@ void StepperTmc2209_SetEnable(
     StepperTmc2209_HandleTypeDef *handle,
     GPIO_PinState enable_state)
 {
-  if (handle == (void *)0)
+  if (handle == NULL)
   {
     return;
   }
@@ -303,7 +303,7 @@ void StepperTmc2209_SetEnable(
 uint8_t StepperTmc2209_GetSpeedStage(
     const StepperTmc2209_HandleTypeDef *handle)
 {
-  if (handle == (const StepperTmc2209_HandleTypeDef *)0)
+  if (handle == NULL)
   {
     return 0U;
   }

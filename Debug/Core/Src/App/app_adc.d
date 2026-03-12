@@ -1,6 +1,5 @@
 Core/Src/App/app_adc.o: ../Core/Src/App/app_adc.c \
- ../Core/Inc/App/app_adc.h ../Core/Inc/App/app_filter.h \
- ../Core/Inc/main.h \
+ ../Core/Inc/App/app_adc.h ../Core/Inc/main.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h \
  ../Core/Inc/stm32f4xx_hal_conf.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_rcc.h \
@@ -33,7 +32,6 @@ Core/Src/App/app_adc.o: ../Core/Src/App/app_adc.c \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h \
  C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h
 ../Core/Inc/App/app_adc.h:
-../Core/Inc/App/app_filter.h:
 ../Core/Inc/main.h:
 C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
