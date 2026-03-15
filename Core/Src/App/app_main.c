@@ -10,6 +10,8 @@
 #define APP_TMC2209_MOTOR_2_SLAVE_ADDR 0x00U
 #define APP_MODE_SLOW_STEP_HZ 200U
 #define APP_MODE_FAST_STEP_HZ 1400U
+#define APP_MODE_ULTRA_STEP_HZ 5000U
+#define APP_MODE_MAX_STEP_HZ 7500U
 #define APP_MOTOR_1_DIR_GPIO_PORT GPIOC
 #define APP_MOTOR_1_DIR_PIN GPIO_PIN_6
 #define APP_MOTOR_1_EN_GPIO_PORT GPIOB
@@ -38,8 +40,8 @@ void AppMain_Init(ADC_HandleTypeDef *hadc1,
                   UART_HandleTypeDef *huart_tmc_2)
 {
   static const uint16_t speed_table[STEPPER_TMC2209_SPEED_STAGE_COUNT] = {
-      APP_MODE_SLOW_STEP_HZ, APP_MODE_FAST_STEP_HZ,
-      APP_MODE_SLOW_STEP_HZ, APP_MODE_FAST_STEP_HZ};
+      APP_MODE_SLOW_STEP_HZ, APP_MODE_FAST_STEP_HZ, APP_MODE_ULTRA_STEP_HZ, APP_MODE_MAX_STEP_HZ,
+      APP_MODE_SLOW_STEP_HZ, APP_MODE_FAST_STEP_HZ, APP_MODE_ULTRA_STEP_HZ, APP_MODE_MAX_STEP_HZ};
   HAL_StatusTypeDef motor_1_status;
   HAL_StatusTypeDef motor_2_status;
   const uint8_t ready_text[] = "APP READY M1+M2\r\n";
@@ -128,6 +130,8 @@ void AppMain_Task(void)
       &g_uart_seq,
       AppAdc_GetFilteredAdc1(&g_app_adc),
       AppAdc_GetFilteredAdc2(&g_app_adc),
+      AppAdc_GetFilteredAdc3(&g_app_adc),
+      AppAdc_GetFilteredAdc4(&g_app_adc),
       AppEncoder_GetCount1(&g_app_encoder),
       AppEncoder_GetCount2(&g_app_encoder),
       AppEncoder_GetAngle1X10000(&g_app_encoder),

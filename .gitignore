@@ -1,0 +1,20 @@
+# STM32CubeIDE build output
+/Debug/
+/Release/
+
+# Embedded firmware artifacts
+*.elf
+*.map
+*.list
+*.hex
+*.bin
+
+# GCC dependency and analysis output
+*.d
+*.o
+*.su
+*.cyclo
+
+# Generic temporary files
+*~
+*.tmp

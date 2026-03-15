@@ -1,6 +1,6 @@
 #include "App/uart_sequence.h"
 
-#define UART_SEQUENCE_TX_BUFFER_SIZE 128U
+#define UART_SEQUENCE_TX_BUFFER_SIZE 160U
 #define UART_SEQUENCE_TX_TIMEOUT_MS 30U
 #define UART_SEQUENCE_ANGLE_FRACTION_SCALE 10000U
 
@@ -142,6 +142,8 @@ void UartSequence_Task(
     UartSequence_HandleTypeDef *handle,
     uint16_t adc1_value,
     uint16_t adc2_value,
+    uint16_t adc3_value,
+    uint16_t adc4_value,
     int32_t enc1_count,
     int32_t enc2_count,
     uint32_t enc1_angle_x10000,
@@ -211,6 +213,26 @@ void UartSequence_Task(
       UART_SEQUENCE_TX_BUFFER_SIZE,
       tx_length,
       adc2_value);
+  tx_length = UartSequence_AppendText(
+      tx_buffer,
+      UART_SEQUENCE_TX_BUFFER_SIZE,
+      tx_length,
+      " adc3:");
+  tx_length = UartSequence_AppendU32(
+      tx_buffer,
+      UART_SEQUENCE_TX_BUFFER_SIZE,
+      tx_length,
+      adc3_value);
+  tx_length = UartSequence_AppendText(
+      tx_buffer,
+      UART_SEQUENCE_TX_BUFFER_SIZE,
+      tx_length,
+      " adc4:");
+  tx_length = UartSequence_AppendU32(
+      tx_buffer,
+      UART_SEQUENCE_TX_BUFFER_SIZE,
+      tx_length,
+      adc4_value);
   tx_length = UartSequence_AppendText(
       tx_buffer,
       UART_SEQUENCE_TX_BUFFER_SIZE,

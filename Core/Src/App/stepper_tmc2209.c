@@ -16,6 +16,14 @@
 #define TMC2209_FRAME_DATA_MSB_SHIFT 24U
 #define TMC2209_FRAME_DATA_BYTE2_SHIFT 16U
 #define TMC2209_FRAME_DATA_BYTE1_SHIFT 8U
+#define TMC2209_IHOLD 6U
+#define TMC2209_IRUN 16U
+#define TMC2209_IHOLDDELAY 4U
+#define TMC2209_RAMP_STEP_HZ 800U
+#define TMC2209_RAMP_DELAY_MS 1U
+#define TMC2209_DIR_SWITCH_SETTLE_MS 2U
+#define TMC2209_IHOLD_IRUN_VALUE \
+  ((((uint32_t)TMC2209_IHOLDDELAY) << 16U) | (((uint32_t)TMC2209_IRUN) << 8U) | ((uint32_t)TMC2209_IHOLD))
 
 static uint8_t StepperTmc2209_Crc8(const uint8_t *data, uint8_t data_len)
 {
@@ -109,7 +117,7 @@ static HAL_StatusTypeDef StepperTmc2209_ConfigDefaultRegisters(
 
   HAL_Delay(TMC2209_REG_WRITE_DELAY_MS);
 
-  status = StepperTmc2209_WriteRegister(handle, TMC2209_REG_IHOLD_IRUN, 0x00041F08U);
+  status = StepperTmc2209_WriteRegister(handle, TMC2209_REG_IHOLD_IRUN, TMC2209_IHOLD_IRUN_VALUE);
   if (status != HAL_OK)
   {
     return status;
@@ -170,6 +178,62 @@ static HAL_StatusTypeDef StepperTmc2209_ApplyStepFrequency(
   return HAL_OK;
 }
 
+static HAL_StatusTypeDef StepperTmc2209_RampStepFrequency(
+    StepperTmc2209_HandleTypeDef *handle,
+    uint16_t start_hz,
+    uint16_t target_hz)
+{
+  uint32_t current_hz;
+  uint32_t target_hz_u32;
+  uint32_t step_hz;
+  HAL_StatusTypeDef status;
+
+  if ((handle == NULL) || (start_hz == 0U) || (target_hz == 0U))
+  {
+    return HAL_ERROR;
+  }
+
+  if (start_hz == target_hz)
+  {
+    return StepperTmc2209_ApplyStepFrequency(handle, target_hz);
+  }
+
+  current_hz = start_hz;
+  target_hz_u32 = target_hz;
+  step_hz = TMC2209_RAMP_STEP_HZ;
+  if (step_hz == 0U)
+  {
+    step_hz = 1U;
+  }
+
+  while (current_hz != target_hz_u32)
+  {
+    if (current_hz < target_hz_u32)
+    {
+      uint32_t delta = target_hz_u32 - current_hz;
+      current_hz += (delta > step_hz) ? step_hz : delta;
+    }
+    else
+    {
+      uint32_t delta = current_hz - target_hz_u32;
+      current_hz -= (delta > step_hz) ? step_hz : delta;
+    }
+
+    status = StepperTmc2209_ApplyStepFrequency(handle, (uint16_t)current_hz);
+    if (status != HAL_OK)
+    {
+      return status;
+    }
+
+    if (current_hz != target_hz_u32)
+    {
+      HAL_Delay(TMC2209_RAMP_DELAY_MS);
+    }
+  }
+
+  return HAL_OK;
+}
+
 HAL_StatusTypeDef StepperTmc2209_Init(
     StepperTmc2209_HandleTypeDef *handle,
     TIM_HandleTypeDef *htim_step,
@@ -186,8 +250,8 @@ HAL_StatusTypeDef StepperTmc2209_Init(
   const uint16_t *source_speed_table;
   uint8_t i;
   static const uint16_t default_speed_table[STEPPER_TMC2209_SPEED_STAGE_COUNT] = {
-      200U, 1400U,
-      200U, 1400U};
+      200U, 1400U, 5000U, 7500U,
+      200U, 1400U, 5000U, 7500U};
 
   if ((handle == NULL) || (htim_step == NULL) || (huart_tmc == NULL) ||
       (dir_gpio_port == NULL) || (en_gpio_port == NULL))
@@ -237,22 +301,52 @@ HAL_StatusTypeDef StepperTmc2209_SetSpeedStage(
     uint8_t stage)
 {
   HAL_StatusTypeDef status;
+  GPIO_PinState target_direction;
+  GPIO_PinState current_direction;
+  uint16_t current_hz;
+  uint16_t target_hz;
+  uint16_t direction_switch_hz;
+  uint8_t direction_switch_index;
 
   if ((handle == NULL) || (stage >= STEPPER_TMC2209_SPEED_STAGE_COUNT))
   {
     return HAL_ERROR;
   }
 
-  if (stage < STEPPER_TMC2209_DIRECTION_SPLIT_STAGE)
+  target_direction = (stage < STEPPER_TMC2209_DIRECTION_SPLIT_STAGE) ? STEPPER_TMC2209_DIR_FORWARD : STEPPER_TMC2209_DIR_REVERSE;
+  current_direction = (handle->speed_index < STEPPER_TMC2209_DIRECTION_SPLIT_STAGE) ? STEPPER_TMC2209_DIR_FORWARD : STEPPER_TMC2209_DIR_REVERSE;
+  target_hz = handle->speed_hz[stage];
+  current_hz = handle->speed_hz[handle->speed_index];
+  if (current_hz == 0U)
   {
-    StepperTmc2209_SetDirection(handle, STEPPER_TMC2209_DIR_FORWARD);
+    current_hz = target_hz;
+  }
+
+  direction_switch_index = (target_direction == STEPPER_TMC2209_DIR_FORWARD) ? 0U : STEPPER_TMC2209_DIRECTION_SPLIT_STAGE;
+  direction_switch_hz = handle->speed_hz[direction_switch_index];
+  if (direction_switch_hz == 0U)
+  {
+    direction_switch_hz = target_hz;
+  }
+
+  if (current_direction != target_direction)
+  {
+    status = StepperTmc2209_RampStepFrequency(handle, current_hz, direction_switch_hz);
+    if (status != HAL_OK)
+    {
+      return status;
+    }
+
+    StepperTmc2209_SetDirection(handle, target_direction);
+    HAL_Delay(TMC2209_DIR_SWITCH_SETTLE_MS);
+    status = StepperTmc2209_RampStepFrequency(handle, direction_switch_hz, target_hz);
   }
   else
   {
-    StepperTmc2209_SetDirection(handle, STEPPER_TMC2209_DIR_REVERSE);
+    StepperTmc2209_SetDirection(handle, target_direction);
+    status = StepperTmc2209_RampStepFrequency(handle, current_hz, target_hz);
   }
 
-  status = StepperTmc2209_ApplyStepFrequency(handle, handle->speed_hz[stage]);
   if (status == HAL_OK)
   {
     handle->speed_index = stage;

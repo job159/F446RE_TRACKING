@@ -1,7 +1,0 @@
-../Core/Src/App/app_adc.c:8:17:AppAdc_ApplyLowPass	32	static
-../Core/Src/App/app_adc.c:21:13:AppAdc_UpdateFilter	24	static
-../Core/Src/App/app_adc.c:37:26:AppAdc_StartDmaChannel	24	static
-../Core/Src/App/app_adc.c:64:6:AppAdc_Init	24	static
-../Core/Src/App/app_adc.c:96:6:AppAdc_Task	16	static
-../Core/Src/App/app_adc.c:117:10:AppAdc_GetFilteredAdc1	16	static
-../Core/Src/App/app_adc.c:127:10:AppAdc_GetFilteredAdc2	16	static

@@ -1,6 +1,6 @@
 # F446RE_TRACKING HackMD（Pin / 功能 / 封包 / PWM / ADC）
 
-> 更新日期: 2026-03-12  
+> 更新日期: 2026-03-15  
 > MCU: STM32F446RE  
 
 ## 1. 專案在做什麼（先講白話）
@@ -8,8 +8,8 @@
 這個專案同時控制兩顆步進馬達（TMC2209），並且每 100ms 用 UART 輸出一次系統狀態。  
 你可以把它想成「雙馬達測試台」：
 
-- 按一下按鍵，兩顆馬達一起切到下一個模式（慢順 -> 快順 -> 慢逆 -> 快逆）。
-- 兩路 ADC 用 DMA circular 持續收值，主迴圈只做濾波。
+- 按一下按鍵，兩顆馬達一起切到下一個模式（慢順 -> 快順 -> 超快順 -> 極速順 -> 慢逆 -> 快逆 -> 超快逆 -> 極速逆）。
+- 四路 ADC 邏輯值由 ADC1/ADC2 的雙通道 scan DMA 持續收值，主迴圈只做濾波。
 - 兩路 Encoder 持續累計位置，並換算成角度（0.0000 ~ 359.9999）。
 - UART 封包把上述資訊整合成一行，方便看終端機或丟上位機。
 
@@ -32,8 +32,10 @@
 | Motor2 | TMC UART RX | `PD2` | `UART5_RX` | In | TMC2209 #2 回讀 |
 | Motor2 | Encoder A/B | `PA0` / `PA1` | `TIM5_CH1/CH2` | In | Motor2 編碼器（Encoder mode） |
 | User I/F | 模式按鍵 | `PC13` | `B1 / EXTI13` | In | 切換 4 種模式 |
-| ADC | ADC1 輸入 | `PC3` | `ADC1_IN13` | In | 類比通道 1 |
-| ADC | ADC2 輸入 | `PC4` | `ADC2_IN14` | In | 類比通道 2 |
+| ADC | ADC1 輸入 1 | `PC3` | `ADC1_IN13` | In | 類比通道 `adc1` |
+| ADC | ADC2 輸入 1 | `PC4` | `ADC2_IN14` | In | 類比通道 `adc2` |
+| ADC | ADC1 輸入 2 | `PC2` | `ADC1_IN12` | In | 類比通道 `adc3` |
+| ADC | ADC2 輸入 2 | `PC1` | `ADC2_IN11` | In | 類比通道 `adc4` |
 | Debug | UART TX | `PA2` | `USART2_TX` | Out | ST-LINK VCP 輸出 |
 | Debug | UART RX | `PA3` | `USART2_RX` | In | 目前未使用 |
 
@@ -41,16 +43,20 @@
 
 ## 3. 模式（Step Stage）怎麼決定
 
-### 3.1 4 個 Stage 定義
+### 3.1 8 個 Stage 定義
 
 | stage | 名稱 | 方向 | STEP 頻率 |
 |---|---|---|---|
 | 0 | 慢順 | 正轉 | 200 Hz |
 | 1 | 快順 | 正轉 | 1400 Hz |
-| 2 | 慢逆 | 反轉 | 200 Hz |
-| 3 | 快逆 | 反轉 | 1400 Hz |
+| 2 | 超快順 | 正轉 | 5000 Hz |
+| 3 | 極速順 | 正轉 | 7500 Hz |
+| 4 | 慢逆 | 反轉 | 200 Hz |
+| 5 | 快逆 | 反轉 | 1400 Hz |
+| 6 | 超快逆 | 反轉 | 5000 Hz |
+| 7 | 極速逆 | 反轉 | 7500 Hz |
 
-切換順序固定：`0 -> 1 -> 2 -> 3 -> 0`
+切換順序固定：`0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 0`
 
 ### 3.2 觸發條件（按鍵）
 
@@ -60,11 +66,20 @@
 
 ### 3.3 程式上的方向切分規則
 
-- `STEPPER_TMC2209_SPEED_STAGE_COUNT = 4`
-- `STEPPER_TMC2209_DIRECTION_SPLIT_STAGE = 2`
+- `STEPPER_TMC2209_SPEED_STAGE_COUNT = 8`
+- `STEPPER_TMC2209_DIRECTION_SPLIT_STAGE = 4`
 - 所以：
-  - `stage 0,1` 視為正轉
-  - `stage 2,3` 視為反轉
+  - `stage 0,1,2,3` 視為正轉
+  - `stage 4,5,6,7` 視為反轉
+
+### 3.4 7500 模式下避免「沒反應」的處理
+
+- Stage 切換不再直接跳到目標頻率，而是用小步進頻率斜坡（ramp）上/下調整。
+- 方向切換時會先減速到低速，再翻轉 DIR，最後再加速到目標速度。
+- 目前 ramp 參數：
+  - `TMC2209_RAMP_STEP_HZ = 800`
+  - `TMC2209_RAMP_DELAY_MS = 1`
+  - `TMC2209_DIR_SWITCH_SETTLE_MS = 2`
 
 ---
 
@@ -133,14 +148,14 @@
 ### 5.1 一行封包格式
 
 ```text
-<seq> m1:<mode> m2:<mode> adc1:<v> adc2:<v> enc1:<c> enc2:<c> ang1:<deg> ang2:<deg>\r\n
+<seq> m1:<mode> m2:<mode> adc1:<v> adc2:<v> adc3:<v> adc4:<v> enc1:<c> enc2:<c> ang1:<deg> ang2:<deg>\r\n
 ```
 
 實例：
 
 ```text
-0 m1:0 m2:0 adc1:1234 adc2:1201 enc1:0 enc2:0 ang1:0.0000 ang2:0.0000
-1 m1:1 m2:1 adc1:1230 adc2:1198 enc1:12 enc2:-3 ang1:1.0800 ang2:359.7300
+0 m1:0 m2:0 adc1:1234 adc2:1201 adc3:1245 adc4:1190 enc1:0 enc2:0 ang1:0.0000 ang2:0.0000
+1 m1:1 m2:1 adc1:1230 adc2:1198 adc3:1241 adc4:1186 enc1:12 enc2:-3 ang1:1.0800 ang2:359.7300
 ```
 
 ### 5.2 欄位意義
@@ -148,10 +163,12 @@
 | 欄位 | 型態 | 範圍/格式 | 說明 |
 |---|---|---|---|
 | `seq` | `uint32` | `0,1,2...` | 成功送出後才 +1，用來看有沒有掉包/停住 |
-| `m1` | `uint8` | `0~3` | Motor1 stage |
-| `m2` | `uint8` | `0~3` | Motor2 stage |
-| `adc1` | `uint16` | `0~4095` | ADC1 濾波後值 |
-| `adc2` | `uint16` | `0~4095` | ADC2 濾波後值 |
+| `m1` | `uint8` | `0~7` | Motor1 stage |
+| `m2` | `uint8` | `0~7` | Motor2 stage |
+| `adc1` | `uint16` | `0~4095` | `ADC1_IN13 / PC3` 濾波後值 |
+| `adc2` | `uint16` | `0~4095` | `ADC2_IN14 / PC4` 濾波後值 |
+| `adc3` | `uint16` | `0~4095` | `ADC1_IN12 / PC2` 濾波後值 |
+| `adc4` | `uint16` | `0~4095` | `ADC2_IN11 / PC1` 濾波後值 |
 | `enc1` | `int32` | 可正可負 | Encoder1 累積 count（不歸零） |
 | `enc2` | `int32` | 可正可負 | Encoder2 累積 count（不歸零） |
 | `ang1` | 文字小數 | `ddd.dddd` | Encoder1 角度（0~359.9999） |
@@ -184,9 +201,9 @@ angle_deg = (normalized_count / 4000) * 360
 
 ### 7.1 取樣架構：DMA circular
 
-- ADC1、ADC2 各自啟動 `HAL_ADC_Start_DMA(..., len=1)`。
-- DMA 會一直把最新結果覆寫到 `dma_adc1` / `dma_adc2`。
-- 主迴圈的 `AppAdc_Task()` 只做兩件事：讀最新值、做濾波。
+- ADC1、ADC2 各自啟動 `HAL_ADC_Start_DMA(..., len=2)`。
+- DMA 會一直把最新結果覆寫到 `dma_adc1[2]` / `dma_adc2[2]`。
+- 主迴圈的 `AppAdc_Task()` 會把兩組 DMA 值整理成 `adc1~adc4`，再做濾波。
 - 為了降低 CPU 負載，在 App 層把 DMA 的 `HT/TC` 中斷關掉（不需要每次搬運都進 IRQ）。
 
 白話：ADC 轉換和搬運交給硬體，CPU 不用一直 `PollForConversion()`。
@@ -262,9 +279,11 @@ voltage = adc_raw * 3.3 / 4095
 | UART (USART2/UART4/UART5) | baudrate | `115200` |
 | PWM Timer | PSC | `83` (`84-1`) |
 | PWM Timer | counter clock | `1 MHz` |
-| Stage 0/2 | step | `200 Hz` |
-| Stage 1/3 | step | `1400 Hz` |
-| ADC mode | acquisition | `HAL_ADC_Start_DMA(...,1)` x2 |
+| Stage 0/4 | step | `200 Hz` |
+| Stage 1/5 | step | `1400 Hz` |
+| Stage 2/6 | step | `5000 Hz` |
+| Stage 3/7 | step | `7500 Hz` |
+| ADC mode | acquisition | `HAL_ADC_Start_DMA(...,2)` x2 |
 | DMA mode | stream | `CIRCULAR` |
 | DMA IRQ | HT/TC | `Disabled in AppAdc` |
 | ADC filter | old:new | `0.7 : 0.3` |
@@ -281,6 +300,6 @@ voltage = adc_raw * 3.3 / 4095
   - 檢查是否只看整數角度，實際是小數在動
 - ADC 很抖：
   - 硬體先補地線與 RC，再考慮把濾波改成 `0.8/0.2`
-- `adc1/adc2` 長時間不變：
+- `adc1/adc2/adc3/adc4` 長時間不變：
   - 檢查 ADC DMA 是否成功啟動（`HAL_ADC_Start_DMA`）
   - 檢查 DMA stream 與 channel 是否對應 `ADC1/ADC2`
