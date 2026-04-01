@@ -26,6 +26,8 @@ typedef struct
   uint8_t slave_address;
   uint16_t speed_hz[STEPPER_TMC2209_SPEED_STAGE_COUNT];
   uint8_t speed_index;
+  uint16_t current_step_hz;
+  GPIO_PinState current_direction;
 } StepperTmc2209_HandleTypeDef;
 
 HAL_StatusTypeDef StepperTmc2209_Init(
@@ -46,6 +48,18 @@ HAL_StatusTypeDef StepperTmc2209_SetSpeedStage(
 
 HAL_StatusTypeDef StepperTmc2209_NextSpeedStage(
     StepperTmc2209_HandleTypeDef *handle);
+
+HAL_StatusTypeDef StepperTmc2209_SetStepHz(
+    StepperTmc2209_HandleTypeDef *handle,
+    GPIO_PinState direction_state,
+    uint16_t step_hz);
+
+HAL_StatusTypeDef StepperTmc2209_Stop(
+    StepperTmc2209_HandleTypeDef *handle);
+
+HAL_StatusTypeDef StepperTmc2209_SetSignedStepRate(
+    StepperTmc2209_HandleTypeDef *handle,
+    int32_t signed_step_hz);
 
 void StepperTmc2209_SetDirection(
     StepperTmc2209_HandleTypeDef *handle,
