@@ -1,254 +1,185 @@
 #include "App/search_strategy.h"
-
 #include <string.h>
 
-static int32_t SearchStrategy_ClampSignedMagnitude(int32_t value, int32_t fallback_hz)
+/* 確保bias速度至少有fallback那麼大，方向維持原本的 */
+static int32_t clamp_magnitude(int32_t val, int32_t fallback)
 {
-  if (value > 0)
-  {
-    return (value < fallback_hz) ? fallback_hz : value;
-  }
-
-  if (value < 0)
-  {
-    return (value > -fallback_hz) ? -fallback_hz : value;
-  }
-
-  return fallback_hz;
+  if (val > 0 && val < fallback) return fallback;
+  if (val < 0 && val > -fallback) return -fallback;
+  if (val == 0) return fallback;
+  return val;
 }
 
-static int32_t SearchStrategy_AverageRecentCommand(
-    const TrackingHistory_HandleTypeDef *history,
-    uint8_t axis_index)
+/* 取最近幾筆有效歷史的指令平均 */
+static int32_t avg_recent_cmd(const TrackingHistory_HandleTypeDef *hist, uint8_t axis)
 {
+  if (hist == NULL || hist->count == 0) return 0;
+
   int32_t sum = 0;
-  uint8_t used = 0U;
-  uint8_t offset;
+  uint8_t used = 0;
 
-  if ((history == NULL) || (history->count == 0U))
+  for (uint8_t off = 0; off < hist->count && used < 4; off++)
   {
-    return 0;
-  }
+    int32_t idx = (int32_t)hist->head - 1 - off;
+    if (idx < 0) idx += SEARCH_HISTORY_LEN;
 
-  for (offset = 0U; (offset < history->count) && (used < 4U); offset++)
-  {
-    int32_t physical_index = (int32_t)history->head - 1 - (int32_t)offset;
-
-    if (physical_index < 0)
+    if (hist->entries[idx].valid)
     {
-      physical_index += SEARCH_HISTORY_LEN;
-    }
-
-    if (history->entries[physical_index].valid != 0U)
-    {
-      sum += (axis_index == 0U) ? history->entries[physical_index].axis1_cmd_hz
-                                : history->entries[physical_index].axis2_cmd_hz;
+      if (axis == 0)
+        sum += hist->entries[idx].axis1_cmd_hz;
+      else
+        sum += hist->entries[idx].axis2_cmd_hz;
       used++;
     }
   }
 
-  if (used == 0U)
-  {
-    return 0;
-  }
-
-  return (sum / (int32_t)used);
+  if (used == 0) return 0;
+  return sum / used;
 }
 
-void TrackingHistory_Init(TrackingHistory_HandleTypeDef *handle)
+/* ---- TrackingHistory ---- */
+
+void TrackingHistory_Init(TrackingHistory_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle, 0, sizeof(*handle));
+  memset(h, 0, sizeof(*h));
 }
 
-void TrackingHistory_Push(
-    TrackingHistory_HandleTypeDef *handle,
+void TrackingHistory_Push(TrackingHistory_HandleTypeDef *h,
     const LdrTrackingFrame_t *frame,
-    int32_t enc1_count,
-    int32_t enc2_count,
-    const MotionCommand_t *command,
-    uint32_t tick_ms)
+    int32_t enc1, int32_t enc2,
+    const MotionCommand_t *cmd, uint32_t tick)
 {
-  TrackingHistoryEntry_t *entry;
+  if (frame->is_valid == 0) return;
 
-  if ((handle == NULL) || (frame == NULL) || (command == NULL) || (frame->is_valid == 0U))
+  TrackingHistoryEntry_t *e = &h->entries[h->head];
+  e->tick_ms = tick;
+  e->error_x = frame->error_x;
+  e->error_y = frame->error_y;
+  e->axis1_cmd_hz = cmd->axis1_step_hz;
+  e->axis2_cmd_hz = cmd->axis2_step_hz;
+  e->enc1_count = enc1;
+  e->enc2_count = enc2;
+  e->total_light = frame->total;
+  e->valid = 1;
+
+  h->head = (h->head + 1) % SEARCH_HISTORY_LEN;
+  if (h->count < SEARCH_HISTORY_LEN) h->count++;
+}
+
+uint8_t TrackingHistory_GetLatestValid(const TrackingHistory_HandleTypeDef *h,
+    TrackingHistoryEntry_t *out)
+{
+  if (h->count == 0) return 0;
+
+  int32_t idx = (int32_t)h->head - 1;
+  if (idx < 0) idx += SEARCH_HISTORY_LEN;
+
+  *out = h->entries[idx];
+  return out->valid;
+}
+
+/* ---- SearchStrategy ---- */
+
+void SearchStrategy_Init(SearchStrategy_HandleTypeDef *h)
+{
+  memset(h, 0, sizeof(*h));
+  h->substate = SEARCH_HISTORY_BIAS;
+  h->sweep_dx = 1;
+  h->sweep_dy = 1;
+}
+
+void SearchStrategy_Reset(SearchStrategy_HandleTypeDef *h)
+{
+  SearchStrategy_Init(h);
+}
+
+void SearchStrategy_Enter(SearchStrategy_HandleTypeDef *h,
+    const TrackingHistory_HandleTypeDef *hist, uint32_t now)
+{
+  SearchStrategy_Init(h);
+  h->state_tick = now;
+
+  /* 用最近歷史的指令方向當bias */
+  h->bias_hz1 = clamp_magnitude(avg_recent_cmd(hist, 0), SEARCH_BIAS_STEP_HZ);
+  h->bias_hz2 = clamp_magnitude(avg_recent_cmd(hist, 1), SEARCH_BIAS_STEP_HZ / 2);
+
+  /* 紀錄最後一次有效的encoder位置 */
+  TrackingHistoryEntry_t last = {0};
+  if (hist != NULL && TrackingHistory_GetLatestValid(hist, &last))
   {
-    return;
-  }
-
-  entry = &handle->entries[handle->head];
-  entry->tick_ms = tick_ms;
-  entry->error_x = frame->error_x;
-  entry->error_y = frame->error_y;
-  entry->axis1_cmd_hz = command->axis1_step_hz;
-  entry->axis2_cmd_hz = command->axis2_step_hz;
-  entry->enc1_count = enc1_count;
-  entry->enc2_count = enc2_count;
-  entry->total_light = frame->total;
-  entry->valid = 1U;
-
-  handle->head = (uint8_t)((handle->head + 1U) % SEARCH_HISTORY_LEN);
-  if (handle->count < SEARCH_HISTORY_LEN)
-  {
-    handle->count++;
+    h->last_good_enc1 = last.enc1_count;
+    h->last_good_enc2 = last.enc2_count;
   }
 }
 
-uint8_t TrackingHistory_GetLatestValid(
-    const TrackingHistory_HandleTypeDef *handle,
-    TrackingHistoryEntry_t *entry)
+MotionCommand_t SearchStrategy_Run(SearchStrategy_HandleTypeDef *h,
+    const TrackingHistory_HandleTypeDef *hist,
+    int32_t enc1, int32_t enc2, uint32_t now)
 {
-  int32_t physical_index;
+  (void)hist;
+  MotionCommand_t cmd = {0, 0};
+  uint32_t elapsed = now - h->state_tick;
 
-  if ((handle == NULL) || (entry == NULL) || (handle->count == 0U))
+  switch (h->substate)
   {
-    return 0U;
-  }
+  case SEARCH_HISTORY_BIAS:
+    /* 先依照歷史方向移動一段時間 */
+    cmd.axis1_step_hz = h->bias_hz1;
+    cmd.axis2_step_hz = h->bias_hz2;
 
-  physical_index = (int32_t)handle->head - 1;
-  if (physical_index < 0)
-  {
-    physical_index += SEARCH_HISTORY_LEN;
-  }
+    if (elapsed >= SEARCH_BIAS_HOLD_MS)
+    {
+      h->state_tick = now;
+      h->bias_cycles++;
+      if (h->bias_cycles >= SEARCH_HISTORY_BIAS_CYCLES)
+        h->substate = SEARCH_REVISIT_LAST_GOOD;
+    }
+    break;
 
-  *entry = handle->entries[physical_index];
-  return entry->valid;
-}
-
-void SearchStrategy_Init(SearchStrategy_HandleTypeDef *handle)
-{
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle, 0, sizeof(*handle));
-  handle->substate = SEARCH_HISTORY_BIAS;
-  handle->sweep_dir_x = 1;
-  handle->sweep_dir_y = 1;
-}
-
-void SearchStrategy_Reset(SearchStrategy_HandleTypeDef *handle)
-{
-  SearchStrategy_Init(handle);
-}
-
-void SearchStrategy_Enter(
-    SearchStrategy_HandleTypeDef *handle,
-    const TrackingHistory_HandleTypeDef *history,
-    uint32_t now_ms)
-{
-  TrackingHistoryEntry_t last_good = {0};
-
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  SearchStrategy_Init(handle);
-  handle->state_tick_ms = now_ms;
-  handle->bias_axis1_hz = SearchStrategy_ClampSignedMagnitude(
-      SearchStrategy_AverageRecentCommand(history, 0U),
-      SEARCH_BIAS_STEP_HZ);
-  handle->bias_axis2_hz = SearchStrategy_ClampSignedMagnitude(
-      SearchStrategy_AverageRecentCommand(history, 1U),
-      SEARCH_BIAS_STEP_HZ / 2);
-
-  if ((history != NULL) && (TrackingHistory_GetLatestValid(history, &last_good) != 0U))
-  {
-    handle->last_good_enc1 = last_good.enc1_count;
-    handle->last_good_enc2 = last_good.enc2_count;
-  }
-}
-
-MotionCommand_t SearchStrategy_Run(
-    SearchStrategy_HandleTypeDef *handle,
-    const TrackingHistory_HandleTypeDef *history,
-    int32_t enc1_count,
-    int32_t enc2_count,
-    uint32_t now_ms)
-{
-  MotionCommand_t command = {0, 0};
-  uint32_t elapsed_ms;
-
-  (void)history;
-
-  if (handle == NULL)
-  {
-    return command;
-  }
-
-  elapsed_ms = now_ms - handle->state_tick_ms;
-
-  switch (handle->substate)
-  {
-    case SEARCH_HISTORY_BIAS:
-      command.axis1_step_hz = handle->bias_axis1_hz;
-      command.axis2_step_hz = handle->bias_axis2_hz;
-
-      if (elapsed_ms >= SEARCH_BIAS_HOLD_MS)
-      {
-        handle->state_tick_ms = now_ms;
-        handle->history_bias_cycles++;
-        if (handle->history_bias_cycles >= SEARCH_HISTORY_BIAS_CYCLES)
-        {
-          handle->substate = SEARCH_REVISIT_LAST_GOOD;
-        }
-      }
+  case SEARCH_REVISIT_LAST_GOOD:
+    /* 嘗試回到最後有效位置 */
+    if (elapsed >= SEARCH_REVISIT_MAX_MS)
+    {
+      h->substate = SEARCH_SWEEP_SCAN;
+      h->state_tick = now;
       break;
+    }
 
-    case SEARCH_REVISIT_LAST_GOOD:
-      if (elapsed_ms >= SEARCH_REVISIT_MAX_MS)
-      {
-        handle->substate = SEARCH_SWEEP_SCAN;
-        handle->state_tick_ms = now_ms;
-        break;
-      }
+    if (enc1 < h->last_good_enc1 - SEARCH_REVISIT_TOL_COUNTS)
+      cmd.axis1_step_hz = SEARCH_REVISIT_STEP_HZ;
+    else if (enc1 > h->last_good_enc1 + SEARCH_REVISIT_TOL_COUNTS)
+      cmd.axis1_step_hz = -(int32_t)SEARCH_REVISIT_STEP_HZ;
 
-      if ((enc1_count < (handle->last_good_enc1 - SEARCH_REVISIT_TOL_COUNTS)) ||
-          (enc1_count > (handle->last_good_enc1 + SEARCH_REVISIT_TOL_COUNTS)))
-      {
-        command.axis1_step_hz = (enc1_count < handle->last_good_enc1) ? (int32_t)SEARCH_REVISIT_STEP_HZ
-                                                                      : -(int32_t)SEARCH_REVISIT_STEP_HZ;
-      }
+    if (enc2 < h->last_good_enc2 - SEARCH_REVISIT_TOL_COUNTS)
+      cmd.axis2_step_hz = SEARCH_REVISIT_STEP_HZ;
+    else if (enc2 > h->last_good_enc2 + SEARCH_REVISIT_TOL_COUNTS)
+      cmd.axis2_step_hz = -(int32_t)SEARCH_REVISIT_STEP_HZ;
 
-      if ((enc2_count < (handle->last_good_enc2 - SEARCH_REVISIT_TOL_COUNTS)) ||
-          (enc2_count > (handle->last_good_enc2 + SEARCH_REVISIT_TOL_COUNTS)))
-      {
-        command.axis2_step_hz = (enc2_count < handle->last_good_enc2) ? (int32_t)SEARCH_REVISIT_STEP_HZ
-                                                                      : -(int32_t)SEARCH_REVISIT_STEP_HZ;
-      }
+    /* 兩軸都到了就進sweep */
+    if (cmd.axis1_step_hz == 0 && cmd.axis2_step_hz == 0)
+    {
+      h->substate = SEARCH_SWEEP_SCAN;
+      h->state_tick = now;
+    }
+    break;
 
-      if ((command.axis1_step_hz == 0) && (command.axis2_step_hz == 0))
-      {
-        handle->substate = SEARCH_SWEEP_SCAN;
-        handle->state_tick_ms = now_ms;
-      }
-      break;
+  case SEARCH_SWEEP_SCAN:
+  default:
+    /* 左右掃描，偶數phase加Y軸 */
+    cmd.axis1_step_hz = (int32_t)h->sweep_dx * SEARCH_SWEEP_STEP_HZ;
+    if (h->sweep_phase & 1)
+      cmd.axis2_step_hz = (int32_t)h->sweep_dy * SEARCH_SWEEP_Y_STEP_HZ;
 
-    case SEARCH_SWEEP_SCAN:
-    default:
-      command.axis1_step_hz = (int32_t)handle->sweep_dir_x * (int32_t)SEARCH_SWEEP_STEP_HZ;
-      command.axis2_step_hz = ((handle->sweep_phase & 0x01U) != 0U)
-                                  ? ((int32_t)handle->sweep_dir_y * (int32_t)SEARCH_SWEEP_Y_STEP_HZ)
-                                  : 0;
-
-      if (elapsed_ms >= SEARCH_SWEEP_HOLD_MS)
-      {
-        handle->state_tick_ms = now_ms;
-        handle->sweep_dir_x = (int8_t)(-handle->sweep_dir_x);
-        handle->sweep_phase++;
-        if ((handle->sweep_phase & 0x01U) == 0U)
-        {
-          handle->sweep_dir_y = (int8_t)(-handle->sweep_dir_y);
-        }
-      }
-      break;
+    if (elapsed >= SEARCH_SWEEP_HOLD_MS)
+    {
+      h->state_tick = now;
+      h->sweep_dx = -h->sweep_dx;
+      h->sweep_phase++;
+      if ((h->sweep_phase & 1) == 0)
+        h->sweep_dy = -h->sweep_dy;
+    }
+    break;
   }
 
-  return command;
+  return cmd;
 }

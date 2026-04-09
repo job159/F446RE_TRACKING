@@ -1,152 +1,88 @@
 #include "App/telemetry.h"
-
 #include <stdio.h>
 #include <string.h>
 
-#define TELEMETRY_TX_BUFFER_SIZE  256U
-#define TELEMETRY_TX_TIMEOUT_MS   30U
+#define TX_BUF_SIZE   256
+#define TX_TIMEOUT_MS  30
 
-static const char *Telemetry_ModeToText(SystemMode_t mode)
+static const char *mode_str(SystemMode_t m)
 {
-  switch (mode)
+  switch (m)
   {
-    case MODE_IDLE:
-      return "IDLE";
-    case MODE_TRACKING:
-      return "TRACK";
-    case MODE_SEARCH:
-      return "SEARCH";
-    case MODE_MANUAL:
-      return "MANUAL";
-    default:
-      return "UNKNOWN";
+  case MODE_IDLE:     return "IDLE";
+  case MODE_TRACKING: return "TRACK";
+  case MODE_SEARCH:   return "SEARCH";
+  case MODE_MANUAL:   return "MANUAL";
+  default:            return "?";
   }
 }
 
-static const char *Telemetry_SubstateToText(const TelemetrySnapshot_t *snapshot)
+static const char *sub_str(const TelemetrySnapshot_t *s)
 {
-  if (snapshot == NULL)
+  if (s->mode == MODE_IDLE)
   {
-    return "NA";
+    if (s->idle_substate == IDLE_CALIBRATING) return "CAL";
+    return "WAIT";
   }
 
-  if (snapshot->mode == MODE_IDLE)
+  if (s->mode == MODE_SEARCH)
   {
-    return (snapshot->idle_substate == IDLE_CALIBRATING) ? "CAL" : "WAIT";
-  }
-
-  if (snapshot->mode == MODE_SEARCH)
-  {
-    switch (snapshot->search_substate)
+    switch (s->search_substate)
     {
-      case SEARCH_HISTORY_BIAS:
-        return "HBIAS";
-      case SEARCH_REVISIT_LAST_GOOD:
-        return "REVISIT";
-      case SEARCH_SWEEP_SCAN:
-      default:
-        return "SWEEP";
+    case SEARCH_HISTORY_BIAS:       return "HBIAS";
+    case SEARCH_REVISIT_LAST_GOOD:  return "REVISIT";
+    default:                        return "SWEEP";
     }
   }
-
   return "-";
 }
 
-void Telemetry_Init(
-    Telemetry_HandleTypeDef *handle,
-    UART_HandleTypeDef *huart,
-    uint32_t period_ms)
+void Telemetry_Init(Telemetry_HandleTypeDef *h, UART_HandleTypeDef *huart, uint32_t period_ms)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  handle->huart = huart;
-  handle->period_ms = period_ms;
-  handle->last_tick_ms = HAL_GetTick();
-  handle->sequence = 0U;
+  h->huart = huart;
+  h->period_ms = period_ms;
+  h->last_tick = HAL_GetTick();
+  h->seq = 0;
 }
 
-void Telemetry_SendLine(
-    Telemetry_HandleTypeDef *handle,
-    const char *text)
+void Telemetry_SendLine(Telemetry_HandleTypeDef *h, const char *text)
 {
-  if ((handle == NULL) || (handle->huart == NULL) || (text == NULL))
-  {
-    return;
-  }
-
-  (void)HAL_UART_Transmit(handle->huart,
-                          (uint8_t *)text,
-                          (uint16_t)strlen(text),
-                          TELEMETRY_TX_TIMEOUT_MS);
+  if (h->huart == NULL || text == NULL) return;
+  HAL_UART_Transmit(h->huart, (uint8_t *)text, (uint16_t)strlen(text), TX_TIMEOUT_MS);
 }
 
-void Telemetry_Task(
-    Telemetry_HandleTypeDef *handle,
-    const TelemetrySnapshot_t *snapshot)
+void Telemetry_Task(Telemetry_HandleTypeDef *h, const TelemetrySnapshot_t *snap)
 {
-  char buffer[TELEMETRY_TX_BUFFER_SIZE];
-  int length;
-  uint32_t now_ms;
+  if (h->huart == NULL || snap == NULL) return;
 
-  if ((handle == NULL) || (snapshot == NULL) || (handle->huart == NULL))
-  {
-    return;
-  }
+  uint32_t now = HAL_GetTick();
+  if ((now - h->last_tick) < h->period_ms) return;
+  h->last_tick = now;
 
-  now_ms = HAL_GetTick();
-  if ((now_ms - handle->last_tick_ms) < handle->period_ms)
-  {
-    return;
-  }
+  unsigned stg_display = 255;
+  if (snap->manual_stage_valid) stg_display = snap->manual_stage;
 
-  handle->last_tick_ms = now_ms;
+  char buf[TX_BUF_SIZE];
+  int len = snprintf(buf, sizeof(buf),
+      "%u mode:%s sub:%s cal:%u valid:%u "
+      "adc:%u,%u,%u,%u base:%u,%u,%u,%u d:%u,%u,%u,%u "
+      "err:%d,%d cmd:%d,%d enc:%d,%d stg:%u\r\n",
+      h->seq,
+      mode_str(snap->mode),
+      sub_str(snap),
+      snap->calibration_done,
+      snap->source_valid,
+      snap->adc[0], snap->adc[1], snap->adc[2], snap->adc[3],
+      snap->baseline[0], snap->baseline[1], snap->baseline[2], snap->baseline[3],
+      snap->delta[0], snap->delta[1], snap->delta[2], snap->delta[3],
+      snap->error_x_x1000, snap->error_y_x1000,
+      snap->cmd_axis1_hz, snap->cmd_axis2_hz,
+      snap->enc1_count, snap->enc2_count,
+      stg_display);
 
-  length = snprintf(buffer,
-                    sizeof(buffer),
-                    "%lu mode:%s sub:%s cal:%u valid:%u adc:%u,%u,%u,%u base:%u,%u,%u,%u d:%u,%u,%u,%u err:%ld,%ld cmd:%ld,%ld enc:%ld,%ld stg:%u\r\n",
-                    (unsigned long)handle->sequence,
-                    Telemetry_ModeToText(snapshot->mode),
-                    Telemetry_SubstateToText(snapshot),
-                    (unsigned int)snapshot->calibration_done,
-                    (unsigned int)snapshot->source_valid,
-                    (unsigned int)snapshot->adc[0],
-                    (unsigned int)snapshot->adc[1],
-                    (unsigned int)snapshot->adc[2],
-                    (unsigned int)snapshot->adc[3],
-                    (unsigned int)snapshot->baseline[0],
-                    (unsigned int)snapshot->baseline[1],
-                    (unsigned int)snapshot->baseline[2],
-                    (unsigned int)snapshot->baseline[3],
-                    (unsigned int)snapshot->delta[0],
-                    (unsigned int)snapshot->delta[1],
-                    (unsigned int)snapshot->delta[2],
-                    (unsigned int)snapshot->delta[3],
-                    (long)snapshot->error_x_x1000,
-                    (long)snapshot->error_y_x1000,
-                    (long)snapshot->cmd_axis1_hz,
-                    (long)snapshot->cmd_axis2_hz,
-                    (long)snapshot->enc1_count,
-                    (long)snapshot->enc2_count,
-                    (unsigned int)(snapshot->manual_stage_valid != 0U ? snapshot->manual_stage : 255U));
+  if (len <= 0) return;
+  if (len > (int)(sizeof(buf) - 1)) len = sizeof(buf) - 1;
 
-  if (length <= 0)
-  {
-    return;
-  }
-
-  if (length > (int)(sizeof(buffer) - 1U))
-  {
-    length = (int)(sizeof(buffer) - 1U);
-  }
-
-  if (HAL_UART_Transmit(handle->huart,
-                        (uint8_t *)buffer,
-                        (uint16_t)length,
-                        TELEMETRY_TX_TIMEOUT_MS) == HAL_OK)
-  {
-    handle->sequence++;
-  }
+  if (HAL_UART_Transmit(h->huart, (uint8_t *)buf, (uint16_t)len, TX_TIMEOUT_MS) == HAL_OK)
+    h->seq++;
 }

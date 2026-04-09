@@ -7,29 +7,29 @@ extern "C" {
 
 #include "main.h"
 
-typedef enum
-{
+/* 系統模式 */
+typedef enum {
   MODE_IDLE = 0,
   MODE_TRACKING,
   MODE_SEARCH,
   MODE_MANUAL
 } SystemMode_t;
 
-typedef enum
-{
+/* IDLE子狀態 */
+typedef enum {
   IDLE_CALIBRATING = 0,
   IDLE_WAIT_CMD
 } IdleSubstate_t;
 
-typedef enum
-{
+/* 搜尋子狀態 */
+typedef enum {
   SEARCH_HISTORY_BIAS = 0,
   SEARCH_REVISIT_LAST_GOOD,
   SEARCH_SWEEP_SCAN
 } SearchSubstate_t;
 
-typedef enum
-{
+/* 串口指令ID */
+typedef enum {
   SERIAL_CMD_NONE = 0,
   SERIAL_CMD_MODE_IDLE,
   SERIAL_CMD_MODE_TRACKING,
@@ -43,15 +43,15 @@ typedef enum
   SERIAL_CMD_HELP
 } SerialCmdId_t;
 
-typedef struct
-{
+/* 串口指令 */
+typedef struct {
   SerialCmdId_t id;
   int32_t arg0;
   int32_t arg1;
 } SerialCmd_t;
 
-typedef struct
-{
+/* LDR追蹤用的一幀資料，存ADC差值、誤差等 */
+typedef struct {
   uint16_t raw[4];
   uint16_t baseline[4];
   uint16_t noise_floor[4];
@@ -64,21 +64,21 @@ typedef struct
   uint8_t calibration_done;
 } LdrTrackingFrame_t;
 
-typedef struct
-{
+/* 單軸PID控制器狀態 */
+typedef struct {
   float prev_error;
   float integrator;
   int32_t prev_output_hz;
 } AxisController_t;
 
-typedef struct
-{
+/* 雙軸運動指令 */
+typedef struct {
   int32_t axis1_step_hz;
   int32_t axis2_step_hz;
 } MotionCommand_t;
 
-typedef struct
-{
+/* 追蹤歷史紀錄(搜尋策略用) */
+typedef struct {
   uint32_t tick_ms;
   float error_x;
   float error_y;
@@ -90,8 +90,8 @@ typedef struct
   uint8_t valid;
 } TrackingHistoryEntry_t;
 
-typedef struct
-{
+/* 遙測快照，定時送出 */
+typedef struct {
   uint32_t tick_ms;
   SystemMode_t mode;
   IdleSubstate_t idle_substate;

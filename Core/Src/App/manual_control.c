@@ -1,69 +1,40 @@
 #include "App/manual_control.h"
-
 #include <string.h>
 
-void ManualControl_Init(ManualControl_HandleTypeDef *handle)
+void ManualControl_Init(ManualControl_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle, 0, sizeof(*handle));
+  memset(h, 0, sizeof(*h));
 }
 
-void ManualControl_Reset(ManualControl_HandleTypeDef *handle)
+void ManualControl_Reset(ManualControl_HandleTypeDef *h)
 {
-  ManualControl_Init(handle);
+  memset(h, 0, sizeof(*h));
 }
 
-void ManualControl_SetStage(
-    ManualControl_HandleTypeDef *handle,
-    uint8_t stage)
+void ManualControl_SetStage(ManualControl_HandleTypeDef *h, uint8_t stage)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  handle->pending_stage = stage;
-  handle->pending_valid = 1U;
+  h->pending_stage = stage;
+  h->pending_valid = 1;
 }
 
-void ManualControl_Task(
-    ManualControl_HandleTypeDef *handle,
-    MotorControl_HandleTypeDef *motor)
+void ManualControl_Task(ManualControl_HandleTypeDef *h, MotorControl_HandleTypeDef *motor)
 {
-  if ((handle == NULL) || (motor == NULL) || (handle->pending_valid == 0U))
-  {
-    return;
-  }
+  if (!h->pending_valid) return;
 
-  if (MotorControl_SetManualStage(motor, handle->pending_stage) == HAL_OK)
+  if (MotorControl_SetManualStage(motor, h->pending_stage) == HAL_OK)
   {
-    handle->active_stage = handle->pending_stage;
-    handle->active_valid = 1U;
+    h->active_stage = h->pending_stage;
+    h->active_valid = 1;
   }
-
-  handle->pending_valid = 0U;
+  h->pending_valid = 0;
 }
 
-uint8_t ManualControl_IsStageValid(const ManualControl_HandleTypeDef *handle)
+uint8_t ManualControl_IsStageValid(const ManualControl_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return 0U;
-  }
-
-  return handle->active_valid;
+  return h->active_valid;
 }
 
-uint8_t ManualControl_GetStage(const ManualControl_HandleTypeDef *handle)
+uint8_t ManualControl_GetStage(const ManualControl_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return 0U;
-  }
-
-  return handle->active_stage;
+  return h->active_stage;
 }

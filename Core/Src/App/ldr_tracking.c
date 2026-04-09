@@ -1,208 +1,128 @@
 #include "App/ldr_tracking.h"
-
 #include "App/tracking_config.h"
-
 #include <string.h>
 
 /*
- * Physical LDR order follows clockwise numbering:
- * 1 = top-left, 2 = top-right, 3 = bottom-right, 4 = bottom-left.
- * raw[0..3] keeps adc1..adc4 order, so left/right must map 4th sensor before 3rd.
+ * LDR排列(從正面看)：
+ *   0=左上  1=右上
+ *   3=左下  2=右下
+ * error_x = (右-左)/total
+ * error_y = (上-下)/total
  */
-#define LDR_IDX_TOP_LEFT      0U
-#define LDR_IDX_TOP_RIGHT     1U
-#define LDR_IDX_BOTTOM_RIGHT  2U
-#define LDR_IDX_BOTTOM_LEFT   3U
 
-static uint16_t LdrTracking_MaxU16(uint16_t a, uint16_t b)
+/* 重新計算delta, total, contrast, error */
+static void recompute(LdrTracking_HandleTypeDef *h)
 {
-  return (a > b) ? a : b;
-}
+  uint32_t total = 0;
+  uint16_t dmin = 0xFFFF, dmax = 0;
 
-static void LdrTracking_Recompute(LdrTracking_HandleTypeDef *handle)
-{
-  uint32_t total = 0U;
-  uint16_t min_delta = 0U;
-  uint16_t max_delta = 0U;
-  uint32_t sum_left;
-  uint32_t sum_right;
-  uint32_t sum_top;
-  uint32_t sum_bottom;
-  uint32_t index;
-
-  if (handle == NULL)
+  for (int i = 0; i < LDR_CHANNEL_COUNT; i++)
   {
-    return;
+    /* 扣掉baseline + noise floor才算有效的光增量 */
+    uint32_t floor = (uint32_t)h->frame.baseline[i] + h->frame.noise_floor[i];
+    if (floor > ADC_12BIT_MAX) floor = ADC_12BIT_MAX;
+
+    if (h->frame.calibration_done && h->frame.raw[i] > floor)
+      h->frame.delta[i] = h->frame.raw[i] - (uint16_t)floor;
+    else
+      h->frame.delta[i] = 0;
+
+    total += h->frame.delta[i];
+    if (h->frame.delta[i] < dmin) dmin = h->frame.delta[i];
+    if (h->frame.delta[i] > dmax) dmax = h->frame.delta[i];
   }
 
-  for (index = 0U; index < LDR_CHANNEL_COUNT; index++)
+  h->frame.total = (uint16_t)total;
+  h->frame.contrast = dmax - dmin;
+
+  /* 判斷光源是否有效 */
+  if (h->frame.calibration_done &&
+      total >= TRACK_VALID_TOTAL_MIN &&
+      h->frame.contrast >= TRACK_DIRECTION_CONTRAST_MIN)
   {
-    uint32_t effective_baseline = (uint32_t)handle->frame.baseline[index] + (uint32_t)handle->frame.noise_floor[index];
+    uint32_t left  = (uint32_t)h->frame.delta[0] + h->frame.delta[3];
+    uint32_t right = (uint32_t)h->frame.delta[1] + h->frame.delta[2];
+    uint32_t top   = (uint32_t)h->frame.delta[0] + h->frame.delta[1];
+    uint32_t bot   = (uint32_t)h->frame.delta[3] + h->frame.delta[2];
 
-    if (effective_baseline > 4095U)
-    {
-      effective_baseline = 4095U;
-    }
-
-    if ((handle->frame.calibration_done != 0U) && (handle->frame.raw[index] > effective_baseline))
-    {
-      handle->frame.delta[index] = (uint16_t)(handle->frame.raw[index] - effective_baseline);
-    }
-    else
-    {
-      handle->frame.delta[index] = 0U;
-    }
-
-    total += handle->frame.delta[index];
-
-    if (index == 0U)
-    {
-      min_delta = handle->frame.delta[index];
-      max_delta = handle->frame.delta[index];
-    }
-    else
-    {
-      if (handle->frame.delta[index] < min_delta)
-      {
-        min_delta = handle->frame.delta[index];
-      }
-
-      if (handle->frame.delta[index] > max_delta)
-      {
-        max_delta = handle->frame.delta[index];
-      }
-    }
-  }
-
-  handle->frame.total = (uint16_t)total;
-  handle->frame.contrast = (uint16_t)(max_delta - min_delta);
-
-  sum_left = (uint32_t)handle->frame.delta[LDR_IDX_TOP_LEFT] + (uint32_t)handle->frame.delta[LDR_IDX_BOTTOM_LEFT];
-  sum_right = (uint32_t)handle->frame.delta[LDR_IDX_TOP_RIGHT] + (uint32_t)handle->frame.delta[LDR_IDX_BOTTOM_RIGHT];
-  sum_top = (uint32_t)handle->frame.delta[LDR_IDX_TOP_LEFT] + (uint32_t)handle->frame.delta[LDR_IDX_TOP_RIGHT];
-  sum_bottom = (uint32_t)handle->frame.delta[LDR_IDX_BOTTOM_LEFT] + (uint32_t)handle->frame.delta[LDR_IDX_BOTTOM_RIGHT];
-
-  if ((handle->frame.calibration_done != 0U) &&
-      (handle->frame.total >= TRACK_VALID_TOTAL_MIN) &&
-      (handle->frame.contrast >= TRACK_DIRECTION_CONTRAST_MIN))
-  {
-    handle->frame.error_x = (float)((int32_t)sum_right - (int32_t)sum_left) / (float)handle->frame.total;
-    handle->frame.error_y = (float)((int32_t)sum_top - (int32_t)sum_bottom) / (float)handle->frame.total;
-    handle->frame.is_valid = 1U;
+    h->frame.error_x = (float)((int32_t)right - (int32_t)left) / (float)total;
+    h->frame.error_y = (float)((int32_t)top - (int32_t)bot) / (float)total;
+    h->frame.is_valid = 1;
   }
   else
   {
-    handle->frame.error_x = 0.0f;
-    handle->frame.error_y = 0.0f;
-    handle->frame.is_valid = 0U;
+    h->frame.error_x = 0.0f;
+    h->frame.error_y = 0.0f;
+    h->frame.is_valid = 0;
   }
 }
 
-void LdrTracking_Init(LdrTracking_HandleTypeDef *handle)
+void LdrTracking_Init(LdrTracking_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle, 0, sizeof(*handle));
+  memset(h, 0, sizeof(*h));
 }
 
-void LdrTracking_ForceRecalibration(LdrTracking_HandleTypeDef *handle)
+void LdrTracking_ForceRecalibration(LdrTracking_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle->calibration_sum, 0, sizeof(handle->calibration_sum));
-  (void)memset(handle->calibration_min, 0xFF, sizeof(handle->calibration_min));
-  (void)memset(handle->calibration_max, 0, sizeof(handle->calibration_max));
-  handle->calibration_samples = 0U;
-  handle->frame.calibration_done = 0U;
-  handle->frame.is_valid = 0U;
-  handle->frame.total = 0U;
-  handle->frame.contrast = 0U;
-  handle->frame.error_x = 0.0f;
-  handle->frame.error_y = 0.0f;
-  (void)memset(handle->frame.delta, 0, sizeof(handle->frame.delta));
+  memset(h->cal_sum, 0, sizeof(h->cal_sum));
+  memset(h->cal_min, 0xFF, sizeof(h->cal_min));  /* 設成最大值好比較 */
+  memset(h->cal_max, 0, sizeof(h->cal_max));
+  h->cal_samples = 0;
+  h->frame.calibration_done = 0;
+  h->frame.is_valid = 0;
+  h->frame.total = 0;
+  h->frame.contrast = 0;
+  h->frame.error_x = 0.0f;
+  h->frame.error_y = 0.0f;
+  memset(h->frame.delta, 0, sizeof(h->frame.delta));
 }
 
-void LdrTracking_UpdateFrame(
-    LdrTracking_HandleTypeDef *handle,
-    uint16_t adc1_value,
-    uint16_t adc2_value,
-    uint16_t adc3_value,
-    uint16_t adc4_value)
+void LdrTracking_UpdateFrame(LdrTracking_HandleTypeDef *h,
+    uint16_t adc1, uint16_t adc2, uint16_t adc3, uint16_t adc4)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  handle->frame.raw[0] = adc1_value;
-  handle->frame.raw[1] = adc2_value;
-  handle->frame.raw[2] = adc3_value;
-  handle->frame.raw[3] = adc4_value;
-
-  LdrTracking_Recompute(handle);
+  h->frame.raw[0] = adc1;
+  h->frame.raw[1] = adc2;
+  h->frame.raw[2] = adc3;
+  h->frame.raw[3] = adc4;
+  recompute(h);
 }
 
-void LdrTracking_AccumulateCalibration(LdrTracking_HandleTypeDef *handle)
+void LdrTracking_AccumulateCalibration(LdrTracking_HandleTypeDef *h)
 {
-  uint32_t index;
-
-  if (handle == NULL)
+  for (int i = 0; i < LDR_CHANNEL_COUNT; i++)
   {
-    return;
-  }
+    uint16_t v = h->frame.raw[i];
+    h->cal_sum[i] += v;
 
-  for (index = 0U; index < LDR_CHANNEL_COUNT; index++)
-  {
-    uint16_t sample = handle->frame.raw[index];
-
-    handle->calibration_sum[index] += sample;
-
-    if (handle->calibration_samples == 0U)
+    if (h->cal_samples == 0)
     {
-      handle->calibration_min[index] = sample;
-      handle->calibration_max[index] = sample;
+      h->cal_min[i] = v;
+      h->cal_max[i] = v;
     }
     else
     {
-      if (sample < handle->calibration_min[index])
-      {
-        handle->calibration_min[index] = sample;
-      }
-
-      if (sample > handle->calibration_max[index])
-      {
-        handle->calibration_max[index] = sample;
-      }
+      if (v < h->cal_min[i]) h->cal_min[i] = v;
+      if (v > h->cal_max[i]) h->cal_max[i] = v;
     }
   }
-
-  handle->calibration_samples++;
+  h->cal_samples++;
 }
 
-void LdrTracking_FinalizeCalibration(LdrTracking_HandleTypeDef *handle)
+void LdrTracking_FinalizeCalibration(LdrTracking_HandleTypeDef *h)
 {
-  uint32_t index;
+  if (h->cal_samples == 0) return;
 
-  if ((handle == NULL) || (handle->calibration_samples == 0U))
+  for (int i = 0; i < LDR_CHANNEL_COUNT; i++)
   {
-    return;
+    uint16_t span = h->cal_max[i] - h->cal_min[i];
+    h->frame.baseline[i] = (uint16_t)(h->cal_sum[i] / h->cal_samples);
+
+    /* noise floor 取 span+margin 跟最小值的較大者 */
+    uint16_t nf = span + LDR_BASELINE_MARGIN;
+    if (nf < LDR_MIN_NOISE_FLOOR) nf = LDR_MIN_NOISE_FLOOR;
+    h->frame.noise_floor[i] = nf;
   }
 
-  for (index = 0U; index < LDR_CHANNEL_COUNT; index++)
-  {
-    uint16_t noise_span = (uint16_t)(handle->calibration_max[index] - handle->calibration_min[index]);
-
-    handle->frame.baseline[index] = (uint16_t)(handle->calibration_sum[index] / handle->calibration_samples);
-    handle->frame.noise_floor[index] = LdrTracking_MaxU16((uint16_t)(noise_span + LDR_BASELINE_MARGIN),
-                                                          LDR_MIN_NOISE_FLOOR);
-  }
-
-  handle->frame.calibration_done = 1U;
-  LdrTracking_Recompute(handle);
+  h->frame.calibration_done = 1;
+  recompute(h);
 }

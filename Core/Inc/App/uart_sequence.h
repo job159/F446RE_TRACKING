@@ -7,31 +7,21 @@ extern "C" {
 
 #include "main.h"
 
-typedef struct
-{
+typedef struct {
   UART_HandleTypeDef *huart;
   uint32_t period_ms;
-  uint32_t last_tick_ms;
-  uint32_t serial_number;
+  uint32_t last_tick;
+  uint32_t serial_no;
 } UartSequence_HandleTypeDef;
 
-void UartSequence_Init(
-    UartSequence_HandleTypeDef *handle,
-    UART_HandleTypeDef *huart,
-    uint32_t period_ms);
+void UartSequence_Init(UartSequence_HandleTypeDef *h, UART_HandleTypeDef *huart, uint32_t period_ms);
 
 void UartSequence_Task(
-    UartSequence_HandleTypeDef *handle,
-    uint16_t adc1_value,
-    uint16_t adc2_value,
-    uint16_t adc3_value,
-    uint16_t adc4_value,
-    int32_t enc1_count,
-    int32_t enc2_count,
-    uint32_t enc1_angle_x10000,
-    uint32_t enc2_angle_x10000,
-    uint8_t motor_1_mode,
-    uint8_t motor_2_mode);
+    UartSequence_HandleTypeDef *h,
+    uint16_t adc1, uint16_t adc2, uint16_t adc3, uint16_t adc4,
+    int32_t enc1, int32_t enc2,
+    uint32_t ang1_x10000, uint32_t ang2_x10000,
+    uint8_t m1_mode, uint8_t m2_mode);
 
 #ifdef __cplusplus
 }

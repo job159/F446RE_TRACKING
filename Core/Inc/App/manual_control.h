@@ -7,24 +7,19 @@ extern "C" {
 
 #include "App/motor_control.h"
 
-typedef struct
-{
+typedef struct {
   uint8_t pending_stage;
   uint8_t pending_valid;
   uint8_t active_stage;
   uint8_t active_valid;
 } ManualControl_HandleTypeDef;
 
-void ManualControl_Init(ManualControl_HandleTypeDef *handle);
-void ManualControl_Reset(ManualControl_HandleTypeDef *handle);
-void ManualControl_SetStage(
-    ManualControl_HandleTypeDef *handle,
-    uint8_t stage);
-void ManualControl_Task(
-    ManualControl_HandleTypeDef *handle,
-    MotorControl_HandleTypeDef *motor);
-uint8_t ManualControl_IsStageValid(const ManualControl_HandleTypeDef *handle);
-uint8_t ManualControl_GetStage(const ManualControl_HandleTypeDef *handle);
+void    ManualControl_Init(ManualControl_HandleTypeDef *h);
+void    ManualControl_Reset(ManualControl_HandleTypeDef *h);
+void    ManualControl_SetStage(ManualControl_HandleTypeDef *h, uint8_t stage);
+void    ManualControl_Task(ManualControl_HandleTypeDef *h, MotorControl_HandleTypeDef *motor);
+uint8_t ManualControl_IsStageValid(const ManualControl_HandleTypeDef *h);
+uint8_t ManualControl_GetStage(const ManualControl_HandleTypeDef *h);
 
 #ifdef __cplusplus
 }

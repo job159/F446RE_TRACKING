@@ -7,18 +7,15 @@ extern "C" {
 
 #include "App/tracking_types.h"
 
-typedef struct
-{
+typedef struct {
   AxisController_t axis1;
   AxisController_t axis2;
 } TrackerController_HandleTypeDef;
 
-void TrackerController_Init(TrackerController_HandleTypeDef *handle);
-void TrackerController_Reset(TrackerController_HandleTypeDef *handle);
-MotionCommand_t TrackerController_Run(
-    TrackerController_HandleTypeDef *handle,
-    const LdrTrackingFrame_t *frame,
-    uint32_t control_period_ms);
+void TrackerController_Init(TrackerController_HandleTypeDef *h);
+void TrackerController_Reset(TrackerController_HandleTypeDef *h);
+MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
+    const LdrTrackingFrame_t *frame, uint32_t period_ms);
 
 #ifdef __cplusplus
 }

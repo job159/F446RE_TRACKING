@@ -1,152 +1,98 @@
 #include "App/tracker_controller.h"
-
 #include "App/tracking_config.h"
-
 #include <string.h>
 
-static float TrackerController_Abs(float value)
+/* 根據誤差大小選不同的Kp：小誤差慢追,大誤差快追 */
+static float pick_kp(float abs_err)
 {
-  return (value >= 0.0f) ? value : -value;
-}
-
-static float TrackerController_SelectKp(float abs_error)
-{
-  if (abs_error <= CTRL_ERR_SMALL)
-  {
-    return CTRL_KP_SMALL;
-  }
-
-  if (abs_error <= CTRL_ERR_MEDIUM)
-  {
-    return CTRL_KP_MEDIUM;
-  }
-
+  if (abs_err <= CTRL_ERR_SMALL)  return CTRL_KP_SMALL;
+  if (abs_err <= CTRL_ERR_MEDIUM) return CTRL_KP_MEDIUM;
   return CTRL_KP_LARGE;
 }
 
-static int32_t TrackerController_RunAxis(
-    AxisController_t *axis,
-    float error,
-    float output_gain,
-    float pos_scale,
-    float neg_scale,
-    uint16_t max_step_hz,
-    uint16_t rate_limit_hz,
-    uint32_t control_period_ms)
+/* 單軸PID計算，回傳step hz */
+static int32_t run_axis(AxisController_t *ax, float error,
+    float gain, float pos_scale, float neg_scale,
+    uint16_t max_hz, uint16_t rate_limit, uint32_t period_ms)
 {
-  float dt_s;
-  float abs_error;
-  float kp;
-  float derivative;
-  float output_f;
-  int32_t output_hz;
-  int32_t delta_hz;
+  if (period_ms == 0) return 0;
 
-  if ((axis == NULL) || (control_period_ms == 0U))
+  float dt = (float)period_ms / 1000.0f;
+  float abs_e = error;
+  if (abs_e < 0) abs_e = -abs_e;
+
+  /* 死區：誤差很小時不動作，讓integrator慢慢衰減 */
+  if (abs_e <= CTRL_ERR_DEADBAND)
   {
+    ax->integrator *= CTRL_INTEGRATOR_DECAY;
+    ax->prev_error = error;
+    ax->prev_output_hz = 0;
     return 0;
   }
 
-  dt_s = (float)control_period_ms / 1000.0f;
-  abs_error = TrackerController_Abs(error);
+  float kp = pick_kp(abs_e);
+  float deriv = (error - ax->prev_error) / dt;
 
-  if (abs_error <= CTRL_ERR_DEADBAND)
-  {
-    axis->integrator *= 0.8f;
-    axis->prev_error = error;
-    axis->prev_output_hz = 0;
-    return 0;
-  }
+  /* 只在中小誤差範圍做積分，避免大幅overshoot */
+  if (abs_e <= CTRL_ERR_MEDIUM)
+    ax->integrator += error * CTRL_KI * dt;
 
-  kp = TrackerController_SelectKp(abs_error);
-  derivative = (error - axis->prev_error) / dt_s;
+  float out = kp * error + ax->integrator + CTRL_KD * deriv;
+  out *= gain;
 
-  if (abs_error <= CTRL_ERR_MEDIUM)
-  {
-    axis->integrator += (error * CTRL_KI * dt_s);
-  }
-
-  output_f = (kp * error) + axis->integrator + (CTRL_KD * derivative);
-  output_f *= output_gain;
-
-  if (output_f >= 0.0f)
-  {
-    output_f *= pos_scale;
-  }
+  /* 正負方向補償(機構不對稱) */
+  if (out >= 0)
+    out *= pos_scale;
   else
-  {
-    output_f *= neg_scale;
-  }
+    out *= neg_scale;
 
-  if (output_f > (float)max_step_hz)
-  {
-    output_f = (float)max_step_hz;
-  }
-  else if (output_f < -(float)max_step_hz)
-  {
-    output_f = -(float)max_step_hz;
-  }
+  /* 輸出限幅 */
+  if (out > (float)max_hz) out = (float)max_hz;
+  else if (out < -(float)max_hz) out = -(float)max_hz;
 
-  output_hz = (int32_t)output_f;
-  delta_hz = output_hz - axis->prev_output_hz;
+  int32_t hz = (int32_t)out;
 
-  if (delta_hz > (int32_t)rate_limit_hz)
-  {
-    output_hz = axis->prev_output_hz + (int32_t)rate_limit_hz;
-  }
-  else if (delta_hz < -(int32_t)rate_limit_hz)
-  {
-    output_hz = axis->prev_output_hz - (int32_t)rate_limit_hz;
-  }
+  /* 限制變化速率，避免突然跳太大 */
+  int32_t delta = hz - ax->prev_output_hz;
+  if (delta > (int32_t)rate_limit)
+    hz = ax->prev_output_hz + (int32_t)rate_limit;
+  else if (delta < -(int32_t)rate_limit)
+    hz = ax->prev_output_hz - (int32_t)rate_limit;
 
-  axis->prev_error = error;
-  axis->prev_output_hz = output_hz;
-  return output_hz;
+  ax->prev_error = error;
+  ax->prev_output_hz = hz;
+  return hz;
 }
 
-void TrackerController_Init(TrackerController_HandleTypeDef *handle)
+void TrackerController_Init(TrackerController_HandleTypeDef *h)
 {
-  if (handle == NULL)
-  {
-    return;
-  }
-
-  (void)memset(handle, 0, sizeof(*handle));
+  memset(h, 0, sizeof(*h));
 }
 
-void TrackerController_Reset(TrackerController_HandleTypeDef *handle)
+void TrackerController_Reset(TrackerController_HandleTypeDef *h)
 {
-  TrackerController_Init(handle);
+  memset(h, 0, sizeof(*h));
 }
 
-MotionCommand_t TrackerController_Run(
-    TrackerController_HandleTypeDef *handle,
-    const LdrTrackingFrame_t *frame,
-    uint32_t control_period_ms)
+MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
+    const LdrTrackingFrame_t *frame, uint32_t period_ms)
 {
-  MotionCommand_t command = {0, 0};
+  MotionCommand_t cmd = {0, 0};
+  if (frame == NULL || !frame->is_valid) return cmd;
 
-  if ((handle == NULL) || (frame == NULL) || (frame->is_valid == 0U))
-  {
-    return command;
-  }
+  cmd.axis1_step_hz = run_axis(&h->axis1,
+      frame->error_x * CTRL_AXIS1_ERROR_SIGN,
+      CTRL_AXIS1_OUTPUT_GAIN,
+      CTRL_AXIS1_POS_SCALE, CTRL_AXIS1_NEG_SCALE,
+      CTRL_AXIS1_MAX_STEP_HZ, CTRL_AXIS1_RATE_LIMIT_STEP_HZ,
+      period_ms);
 
-  command.axis1_step_hz = TrackerController_RunAxis(&handle->axis1,
-                                                    frame->error_x * CTRL_AXIS1_ERROR_SIGN,
-                                                    CTRL_AXIS1_OUTPUT_GAIN,
-                                                    CTRL_AXIS1_POS_SCALE,
-                                                    CTRL_AXIS1_NEG_SCALE,
-                                                    CTRL_AXIS1_MAX_STEP_HZ,
-                                                    CTRL_AXIS1_RATE_LIMIT_STEP_HZ,
-                                                    control_period_ms);
-  command.axis2_step_hz = TrackerController_RunAxis(&handle->axis2,
-                                                    frame->error_y * CTRL_AXIS2_ERROR_SIGN,
-                                                    CTRL_AXIS2_OUTPUT_GAIN,
-                                                    CTRL_AXIS2_POS_SCALE,
-                                                    CTRL_AXIS2_NEG_SCALE,
-                                                    CTRL_AXIS2_MAX_STEP_HZ,
-                                                    CTRL_AXIS2_RATE_LIMIT_STEP_HZ,
-                                                    control_period_ms);
+  cmd.axis2_step_hz = run_axis(&h->axis2,
+      frame->error_y * CTRL_AXIS2_ERROR_SIGN,
+      CTRL_AXIS2_OUTPUT_GAIN,
+      CTRL_AXIS2_POS_SCALE, CTRL_AXIS2_NEG_SCALE,
+      CTRL_AXIS2_MAX_STEP_HZ, CTRL_AXIS2_RATE_LIMIT_STEP_HZ,
+      period_ms);
 
-  return command;
+  return cmd;
 }

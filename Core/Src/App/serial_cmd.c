@@ -1,360 +1,225 @@
 #include "App/serial_cmd.h"
-
 #include <string.h>
 
-static uint8_t SerialCmd_IsWhitespace(char ch)
+/* 去空白、轉大寫、複製到dst，回傳長度 */
+static uint8_t trim_upper(char *dst, uint8_t dst_size, const uint8_t *src, uint8_t len)
 {
-  return (uint8_t)((ch == ' ') || (ch == '\t'));
+  uint8_t s = 0, e = len;
+
+  /* trim前後空白 */
+  while (s < len && (src[s] == ' ' || src[s] == '\t')) s++;
+  while (e > s && (src[e-1] == ' ' || src[e-1] == '\t')) e--;
+
+  uint8_t n = 0;
+  while (s < e && n < dst_size - 1)
+  {
+    char c = (char)src[s++];
+    if (c >= 'a' && c <= 'z') c = c - 32;
+    dst[n++] = c;
+  }
+  dst[n] = '\0';
+  return n;
 }
 
-static char SerialCmd_ToUpper(char ch)
+/* 解析十進位數字字串 */
+static int32_t parse_int(const char *s, uint8_t *ok)
 {
-  if ((ch >= 'a') && (ch <= 'z'))
-  {
-    return (char)(ch - ('a' - 'A'));
-  }
+  if (ok) *ok = 0;
+  if (s == NULL || *s == '\0') return 0;
 
-  return ch;
+  int32_t val = 0;
+  while (*s)
+  {
+    if (*s < '0' || *s > '9') return 0;
+    val = val * 10 + (*s - '0');
+    s++;
+  }
+  if (ok) *ok = 1;
+  return val;
 }
 
-static uint8_t SerialCmd_CopyTrimmedUpper(
-    char *dst,
-    uint8_t dst_size,
-    const uint8_t *src,
-    uint8_t src_len)
+/* 解析 "5MS" 或 "5" 這類period字串 */
+static int32_t parse_period(const char *s, uint8_t *ok)
 {
-  uint8_t start = 0U;
-  uint8_t end = src_len;
-  uint8_t index = 0U;
+  if (ok) *ok = 0;
+  if (s == NULL || *s == '\0') return 0;
 
-  if ((dst == NULL) || (src == NULL) || (dst_size == 0U))
-  {
-    return 0U;
-  }
+  size_t len = strlen(s);
+  char buf[8];
 
-  while ((start < src_len) && (SerialCmd_IsWhitespace((char)src[start]) != 0U))
-  {
-    start++;
-  }
+  /* 去掉結尾的 "MS" */
+  if (len >= 2 && s[len-2] == 'M' && s[len-1] == 'S')
+    len -= 2;
 
-  while ((end > start) && (SerialCmd_IsWhitespace((char)src[end - 1U]) != 0U))
-  {
-    end--;
-  }
+  if (len == 0 || len >= sizeof(buf)) return 0;
 
-  while ((start < end) && (index < (uint8_t)(dst_size - 1U)))
-  {
-    dst[index] = SerialCmd_ToUpper((char)src[start]);
-    index++;
-    start++;
-  }
-
-  dst[index] = '\0';
-  return index;
+  memcpy(buf, s, len);
+  buf[len] = '\0';
+  return parse_int(buf, ok);
 }
 
-static int32_t SerialCmd_ParseDecimal(const char *text, uint8_t *ok)
+/* 解析手動stage: "1"~"8", "F1"~"F4", "R1"~"R4" */
+static int32_t parse_stage(const char *s, uint8_t *ok)
 {
-  int32_t value = 0;
+  if (ok) *ok = 0;
+  if (s == NULL || *s == '\0') return 0;
 
-  if (ok != NULL)
+  /* 直接數字 1~8 */
+  if (s[0] >= '1' && s[0] <= '8' && s[1] == '\0')
   {
-    *ok = 0U;
+    if (ok) *ok = 1;
+    return s[0] - '1';
   }
-
-  if ((text == NULL) || (*text == '\0'))
+  /* F1~F4: forward */
+  if (s[0] == 'F' && s[1] >= '1' && s[1] <= '4' && s[2] == '\0')
   {
-    return 0;
+    if (ok) *ok = 1;
+    return s[1] - '1';
   }
-
-  while (*text != '\0')
+  /* R1~R4: reverse */
+  if (s[0] == 'R' && s[1] >= '1' && s[1] <= '4' && s[2] == '\0')
   {
-    if ((*text < '0') || (*text > '9'))
-    {
-      return 0;
-    }
-
-    value = (value * 10) + (int32_t)(*text - '0');
-    text++;
+    if (ok) *ok = 1;
+    return 4 + (s[1] - '1');
   }
-
-  if (ok != NULL)
-  {
-    *ok = 1U;
-  }
-
-  return value;
-}
-
-static int32_t SerialCmd_ParsePeriodMs(const char *text, uint8_t *ok)
-{
-  char number_text[8];
-  size_t length;
-  size_t index;
-
-  if (ok != NULL)
-  {
-    *ok = 0U;
-  }
-
-  if ((text == NULL) || (*text == '\0'))
-  {
-    return 0;
-  }
-
-  length = strlen(text);
-  if ((length >= 2U) && (text[length - 2U] == 'M') && (text[length - 1U] == 'S'))
-  {
-    length -= 2U;
-  }
-
-  if ((length == 0U) || (length >= sizeof(number_text)))
-  {
-    return 0;
-  }
-
-  for (index = 0U; index < length; index++)
-  {
-    number_text[index] = text[index];
-  }
-
-  number_text[length] = '\0';
-  return SerialCmd_ParseDecimal(number_text, ok);
-}
-
-static int32_t SerialCmd_ParseManualStageToken(const char *text, uint8_t *ok)
-{
-  if (ok != NULL)
-  {
-    *ok = 0U;
-  }
-
-  if ((text == NULL) || (*text == '\0'))
-  {
-    return 0;
-  }
-
-  if ((text[0] >= '1') && (text[0] <= '8') && (text[1] == '\0'))
-  {
-    if (ok != NULL)
-    {
-      *ok = 1U;
-    }
-
-    return (int32_t)(text[0] - '1');
-  }
-
-  if ((text[0] == 'F') && (text[1] >= '1') && (text[1] <= '4') && (text[2] == '\0'))
-  {
-    if (ok != NULL)
-    {
-      *ok = 1U;
-    }
-
-    return (int32_t)(text[1] - '1');
-  }
-
-  if ((text[0] == 'R') && (text[1] >= '1') && (text[1] <= '4') && (text[2] == '\0'))
-  {
-    if (ok != NULL)
-    {
-      *ok = 1U;
-    }
-
-    return (int32_t)(4 + (text[1] - '1'));
-  }
-
   return 0;
 }
 
-static void SerialCmd_Enqueue(
-    SerialCmd_HandleTypeDef *handle,
-    const SerialCmd_t *command)
+static void enqueue(SerialCmd_HandleTypeDef *h, SerialCmdId_t id, int32_t arg)
 {
-  if ((handle == NULL) || (command == NULL))
-  {
-    return;
-  }
+  if (h->q_count >= SERIAL_CMD_QUEUE_LENGTH) return;
 
-  if (handle->queue_count >= SERIAL_CMD_QUEUE_LENGTH)
-  {
-    return;
-  }
-
-  handle->queue[handle->queue_tail] = *command;
-  handle->queue_tail = (uint8_t)((handle->queue_tail + 1U) % SERIAL_CMD_QUEUE_LENGTH);
-  handle->queue_count++;
+  h->queue[h->q_tail].id = id;
+  h->queue[h->q_tail].arg0 = arg;
+  h->queue[h->q_tail].arg1 = 0;
+  h->q_tail = (h->q_tail + 1) % SERIAL_CMD_QUEUE_LENGTH;
+  h->q_count++;
 }
 
-static void SerialCmd_ParseAndQueue(
-    SerialCmd_HandleTypeDef *handle,
-    const uint8_t *line,
-    uint8_t line_length)
+/* 解析一行指令，放進queue */
+static void parse_line(SerialCmd_HandleTypeDef *h, const uint8_t *line, uint8_t len)
 {
-  char command_text[SERIAL_CMD_RX_LINE_MAX];
-  SerialCmd_t command = {SERIAL_CMD_NONE, 0, 0};
-  uint8_t ok = 0U;
+  char txt[SERIAL_CMD_RX_LINE_MAX];
+  if (trim_upper(txt, sizeof(txt), line, len) == 0) return;
 
-  if (SerialCmd_CopyTrimmedUpper(command_text,
-                                 (uint8_t)sizeof(command_text),
-                                 line,
-                                 line_length) == 0U)
+  uint8_t ok = 0;
+
+  /* 模式切換 */
+  if (strcmp(txt, "IDLE") == 0 || strcmp(txt, "0") == 0 || strcmp(txt, "MODE 0") == 0)
+  { enqueue(h, SERIAL_CMD_MODE_IDLE, 0); return; }
+
+  if (strcmp(txt, "TRACK") == 0 || strcmp(txt, "1") == 0 || strcmp(txt, "MODE 1") == 0)
+  { enqueue(h, SERIAL_CMD_MODE_TRACKING, 0); return; }
+
+  if (strcmp(txt, "MANUAL") == 0 || strcmp(txt, "2") == 0 || strcmp(txt, "MODE 2") == 0)
+  { enqueue(h, SERIAL_CMD_MODE_MANUAL, 0); return; }
+
+  /* 校正/查詢 */
+  if (strcmp(txt, "RECAL") == 0 || strcmp(txt, "CAL") == 0)
+  { enqueue(h, SERIAL_CMD_RECALIBRATE, 0); return; }
+
+  if (strcmp(txt, "STATUS") == 0 || strcmp(txt, "STAT?") == 0)
+  { enqueue(h, SERIAL_CMD_STATUS_QUERY, 0); return; }
+
+  if (strcmp(txt, "CALDATA") == 0 || strcmp(txt, "CAL?") == 0)
+  { enqueue(h, SERIAL_CMD_CAL_QUERY, 0); return; }
+
+  if (strcmp(txt, "CONFIG") == 0 || strcmp(txt, "CFG?") == 0)
+  { enqueue(h, SERIAL_CMD_CONFIG_QUERY, 0); return; }
+
+  if (strcmp(txt, "HELP") == 0)
+  { enqueue(h, SERIAL_CMD_HELP, 0); return; }
+
+  /* 控制週期: "CTL 5MS" 或 "PERIOD 2MS" */
+  if (strncmp(txt, "CTL ", 4) == 0 || strncmp(txt, "PERIOD ", 7) == 0)
   {
+    const char *p = &txt[7];
+    if (txt[0] == 'C') p = &txt[4];
+    int32_t ms = parse_period(p, &ok);
+    if (ok) enqueue(h, SERIAL_CMD_CONTROL_PERIOD, ms);
     return;
   }
 
-  if ((strcmp(command_text, "IDLE") == 0) || (strcmp(command_text, "0") == 0) || (strcmp(command_text, "MODE 0") == 0))
+  /* 手動stage: "MAN F2", "MAN 3" */
+  if (strncmp(txt, "MAN ", 4) == 0)
   {
-    command.id = SERIAL_CMD_MODE_IDLE;
-  }
-  else if ((strcmp(command_text, "TRACK") == 0) || (strcmp(command_text, "1") == 0) || (strcmp(command_text, "MODE 1") == 0))
-  {
-    command.id = SERIAL_CMD_MODE_TRACKING;
-  }
-  else if ((strcmp(command_text, "MANUAL") == 0) || (strcmp(command_text, "2") == 0) || (strcmp(command_text, "MODE 2") == 0))
-  {
-    command.id = SERIAL_CMD_MODE_MANUAL;
-  }
-  else if ((strcmp(command_text, "RECAL") == 0) || (strcmp(command_text, "CAL") == 0))
-  {
-    command.id = SERIAL_CMD_RECALIBRATE;
-  }
-  else if ((strcmp(command_text, "STATUS") == 0) || (strcmp(command_text, "STAT?") == 0))
-  {
-    command.id = SERIAL_CMD_STATUS_QUERY;
-  }
-  else if ((strcmp(command_text, "CALDATA") == 0) || (strcmp(command_text, "CAL?") == 0))
-  {
-    command.id = SERIAL_CMD_CAL_QUERY;
-  }
-  else if ((strcmp(command_text, "CONFIG") == 0) || (strcmp(command_text, "CFG?") == 0))
-  {
-    command.id = SERIAL_CMD_CONFIG_QUERY;
-  }
-  else if ((strncmp(command_text, "CTL ", 4U) == 0) || (strncmp(command_text, "PERIOD ", 7U) == 0))
-  {
-    const char *period_text = (command_text[0] == 'C') ? &command_text[4] : &command_text[7];
-
-    command.arg0 = SerialCmd_ParsePeriodMs(period_text, &ok);
-    if (ok != 0U)
-    {
-      command.id = SERIAL_CMD_CONTROL_PERIOD;
-    }
-  }
-  else if (strcmp(command_text, "HELP") == 0)
-  {
-    command.id = SERIAL_CMD_HELP;
-  }
-  else if (strncmp(command_text, "MAN ", 4U) == 0)
-  {
-    command.arg0 = SerialCmd_ParseManualStageToken(&command_text[4], &ok);
-    if (ok != 0U)
-    {
-      command.id = SERIAL_CMD_MANUAL_STAGE;
-    }
-  }
-  else if ((command_text[0] == 'F') && (command_text[1] >= '1') && (command_text[1] <= '4') && (command_text[2] == '\0'))
-  {
-    command.id = SERIAL_CMD_MANUAL_STAGE;
-    command.arg0 = (int32_t)(command_text[1] - '1');
-  }
-  else if ((command_text[0] == 'R') && (command_text[1] >= '1') && (command_text[1] <= '4') && (command_text[2] == '\0'))
-  {
-    command.id = SERIAL_CMD_MANUAL_STAGE;
-    command.arg0 = (int32_t)(4 + (command_text[1] - '1'));
-  }
-  else if (strncmp(command_text, "STAGE ", 6U) == 0)
-  {
-    command.arg0 = SerialCmd_ParseDecimal(&command_text[6], &ok);
-    if ((ok != 0U) && (command.arg0 >= 0) && (command.arg0 <= 7))
-    {
-      command.id = SERIAL_CMD_MANUAL_STAGE;
-    }
+    int32_t stg = parse_stage(&txt[4], &ok);
+    if (ok) enqueue(h, SERIAL_CMD_MANUAL_STAGE, stg);
+    return;
   }
 
-  if (command.id != SERIAL_CMD_NONE)
+  /* 簡寫: "F1"~"F4" */
+  if (txt[0] == 'F' && txt[1] >= '1' && txt[1] <= '4' && txt[2] == '\0')
+  { enqueue(h, SERIAL_CMD_MANUAL_STAGE, txt[1] - '1'); return; }
+
+  /* 簡寫: "R1"~"R4" */
+  if (txt[0] == 'R' && txt[1] >= '1' && txt[1] <= '4' && txt[2] == '\0')
+  { enqueue(h, SERIAL_CMD_MANUAL_STAGE, 4 + (txt[1] - '1')); return; }
+
+  /* "STAGE 0"~"STAGE 7" */
+  if (strncmp(txt, "STAGE ", 6) == 0)
   {
-    SerialCmd_Enqueue(handle, &command);
+    int32_t v = parse_int(&txt[6], &ok);
+    if (ok && v >= 0 && v <= 7)
+      enqueue(h, SERIAL_CMD_MANUAL_STAGE, v);
+    return;
   }
 }
 
-void SerialCmd_Init(
-    SerialCmd_HandleTypeDef *handle,
-    UART_HandleTypeDef *huart)
-{
-  if (handle == NULL)
-  {
-    return;
-  }
+/* ---- public ---- */
 
-  (void)memset(handle, 0, sizeof(*handle));
-  handle->huart = huart;
+void SerialCmd_Init(SerialCmd_HandleTypeDef *h, UART_HandleTypeDef *huart)
+{
+  memset(h, 0, sizeof(*h));
+  h->huart = huart;
 }
 
-void SerialCmd_PollRx(SerialCmd_HandleTypeDef *handle)
+void SerialCmd_PollRx(SerialCmd_HandleTypeDef *h)
 {
-  if ((handle == NULL) || (handle->huart == NULL))
-  {
-    return;
-  }
+  if (h->huart == NULL) return;
 
-  if (__HAL_UART_GET_FLAG(handle->huart, UART_FLAG_ORE) != RESET)
-  {
-    __HAL_UART_CLEAR_OREFLAG(handle->huart);
-  }
+  /* 清除可能的錯誤flag */
+  if (__HAL_UART_GET_FLAG(h->huart, UART_FLAG_ORE))
+    __HAL_UART_CLEAR_OREFLAG(h->huart);
+  if (__HAL_UART_GET_FLAG(h->huart, UART_FLAG_NE))
+    __HAL_UART_CLEAR_NEFLAG(h->huart);
+  if (__HAL_UART_GET_FLAG(h->huart, UART_FLAG_FE))
+    __HAL_UART_CLEAR_FEFLAG(h->huart);
 
-  if (__HAL_UART_GET_FLAG(handle->huart, UART_FLAG_NE) != RESET)
+  /* 一次把所有收到的byte讀完 */
+  while (__HAL_UART_GET_FLAG(h->huart, UART_FLAG_RXNE))
   {
-    __HAL_UART_CLEAR_NEFLAG(handle->huart);
-  }
+    uint8_t ch = (uint8_t)(h->huart->Instance->DR & 0xFF);
 
-  if (__HAL_UART_GET_FLAG(handle->huart, UART_FLAG_FE) != RESET)
-  {
-    __HAL_UART_CLEAR_FEFLAG(handle->huart);
-  }
-
-  while (__HAL_UART_GET_FLAG(handle->huart, UART_FLAG_RXNE) != RESET)
-  {
-    uint8_t rx_byte = (uint8_t)(handle->huart->Instance->DR & 0xFFU);
-
-    if ((rx_byte == '\r') || (rx_byte == '\n'))
+    if (ch == '\r' || ch == '\n')
     {
-      if (handle->rx_length > 0U)
+      if (h->rx_len > 0)
       {
-        SerialCmd_ParseAndQueue(handle, handle->rx_line, handle->rx_length);
-        handle->rx_length = 0U;
+        parse_line(h, h->rx_buf, h->rx_len);
+        h->rx_len = 0;
       }
     }
-    else if ((rx_byte == '\b') || (rx_byte == 0x7FU))
+    else if (ch == '\b' || ch == 0x7F)
     {
-      if (handle->rx_length > 0U)
-      {
-        handle->rx_length--;
-      }
+      if (h->rx_len > 0) h->rx_len--;
     }
-    else if (handle->rx_length < SERIAL_CMD_RX_LINE_MAX)
+    else if (h->rx_len < SERIAL_CMD_RX_LINE_MAX)
     {
-      handle->rx_line[handle->rx_length] = rx_byte;
-      handle->rx_length++;
+      h->rx_buf[h->rx_len++] = ch;
     }
     else
     {
-      handle->rx_length = 0U;
+      h->rx_len = 0;   /* 溢出就丟掉 */
     }
   }
 }
 
-uint8_t SerialCmd_Dequeue(
-    SerialCmd_HandleTypeDef *handle,
-    SerialCmd_t *command)
+uint8_t SerialCmd_Dequeue(SerialCmd_HandleTypeDef *h, SerialCmd_t *out)
 {
-  if ((handle == NULL) || (command == NULL) || (handle->queue_count == 0U))
-  {
-    return 0U;
-  }
+  if (h->q_count == 0) return 0;
 
-  *command = handle->queue[handle->queue_head];
-  handle->queue_head = (uint8_t)((handle->queue_head + 1U) % SERIAL_CMD_QUEUE_LENGTH);
-  handle->queue_count--;
-  return 1U;
+  *out = h->queue[h->q_head];
+  h->q_head = (h->q_head + 1) % SERIAL_CMD_QUEUE_LENGTH;
+  h->q_count--;
+  return 1;
 }

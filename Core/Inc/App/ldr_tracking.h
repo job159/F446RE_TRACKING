@@ -7,25 +7,20 @@ extern "C" {
 
 #include "App/tracking_types.h"
 
-typedef struct
-{
+typedef struct {
   LdrTrackingFrame_t frame;
-  uint32_t calibration_sum[4];
-  uint16_t calibration_min[4];
-  uint16_t calibration_max[4];
-  uint32_t calibration_samples;
+  uint32_t cal_sum[4];
+  uint16_t cal_min[4];
+  uint16_t cal_max[4];
+  uint32_t cal_samples;
 } LdrTracking_HandleTypeDef;
 
-void LdrTracking_Init(LdrTracking_HandleTypeDef *handle);
-void LdrTracking_ForceRecalibration(LdrTracking_HandleTypeDef *handle);
-void LdrTracking_UpdateFrame(
-    LdrTracking_HandleTypeDef *handle,
-    uint16_t adc1_value,
-    uint16_t adc2_value,
-    uint16_t adc3_value,
-    uint16_t adc4_value);
-void LdrTracking_AccumulateCalibration(LdrTracking_HandleTypeDef *handle);
-void LdrTracking_FinalizeCalibration(LdrTracking_HandleTypeDef *handle);
+void LdrTracking_Init(LdrTracking_HandleTypeDef *h);
+void LdrTracking_ForceRecalibration(LdrTracking_HandleTypeDef *h);
+void LdrTracking_UpdateFrame(LdrTracking_HandleTypeDef *h,
+    uint16_t adc1, uint16_t adc2, uint16_t adc3, uint16_t adc4);
+void LdrTracking_AccumulateCalibration(LdrTracking_HandleTypeDef *h);
+void LdrTracking_FinalizeCalibration(LdrTracking_HandleTypeDef *h);
 
 #ifdef __cplusplus
 }
