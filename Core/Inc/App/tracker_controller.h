@@ -7,9 +7,9 @@ extern "C" {
 
 #include "App/tracking_types.h"
 
+/* 純比例控制不需要任何狀態,保留 struct 讓呼叫端的 handle 介面不變 */
 typedef struct {
-  AxisController_t axis1;
-  AxisController_t axis2;
+  uint8_t _reserved;
 } TrackerController_HandleTypeDef;
 
 void TrackerController_Init(TrackerController_HandleTypeDef *h);

@@ -15,6 +15,25 @@
 *.su
 *.cyclo
 
+# Eclipse / STM32CubeIDE 個人/工作區設定(不要 commit)
+.settings/
+.metadata/
+*.launch.bak
+RemoteSystemsTempFiles/
+
+# 其他 IDE / 編輯器個人設定
+.vscode/
+.idea/
+.claude/
+
+# 自動備份
+.sixth/
+.mxproject.bak
+
+# 本機私人筆記資料夾(若不想公開)
+# /docs/
+
 # Generic temporary files
 *~
 *.tmp
+*.swp

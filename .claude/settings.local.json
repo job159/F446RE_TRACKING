@@ -3,7 +3,10 @@
     "allow": [
       "Bash(wc -l \"C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Core/Src/App/\"*.c \"C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Core/Inc/App/\"*.h)",
       "Bash(ls *.ioc)",
-      "Bash(wc -l new_docs/*.md)"
+      "Bash(wc -l new_docs/*.md)",
+      "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/STM32F4xx_HAL_Driver/Inc/)",
+      "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/Device/ST/STM32F4xx/Include/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/CMSIS/Device/ST/STM32F4xx/Include/)",
+      "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/Include/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/CMSIS/Include/)"
     ]
   }
 }

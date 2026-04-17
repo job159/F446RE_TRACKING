@@ -29,12 +29,12 @@ extern "C" {
 #define TRACK_DIRECTION_CONTRAST_MIN 28U     /* 最亮-最暗差,小於不追蹤 */
 
 /* =========================================================================
- *  PID - 共用
+ *  控制 - 共用(純比例,沒有記憶:不積分、不微分、不速率限制)
+ *  每個 cycle 的馬達速度只看當下誤差,沒有歷史 → 不會來回擺盪
  * ========================================================================= */
-#define PID_ERR_DEADBAND             0.015f  /* 誤差小於此值完全不動 */
+#define PID_ERR_DEADBAND             0.025f  /* 誤差小於此值完全不動 */
 #define PID_ERR_SMALL                0.055f  /* 切到 KP_SMALL 的門檻 */
 #define PID_ERR_MEDIUM               0.140f  /* 切到 KP_MEDIUM 的門檻 */
-#define PID_INTEGRATOR_DECAY         0.8f    /* 死區內積分器衰減 */
 
 /* =========================================================================
  *  追蹤方向翻轉(只影響 TRACKING 模式,manual 不受影響)
@@ -44,32 +44,27 @@ extern "C" {
 #define M2_TRACK_DIR                 (+1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
 
 /* =========================================================================
- *  PID - Motor1 (緩和版,大約 Motor2 的一半)
+ *  控制 - Motor1 (緩和版,大約 Motor2 的一半)
+ *  輸出 hz = kp × error × OUTPUT_GAIN × (pos_scale 或 neg_scale)
  * ========================================================================= */
-#define M1_KP_SMALL                  90.0f
-#define M1_KP_MEDIUM                 180.0f
-#define M1_KP_LARGE                  310.0f
-#define M1_KI                        4.0f
-#define M1_KD                        9.0f
+#define M1_KP_SMALL   			     150.0f   // 原 90
+#define M1_KP_MEDIUM  				 300.0f   // 原 180
+#define M1_KP_LARGE   				 500.0f   // 原 310
 #define M1_OUTPUT_GAIN               1.0f
 #define M1_POS_SCALE                 1.10f
 #define M1_NEG_SCALE                 1.24f
 #define M1_MAX_STEP_HZ               60000U
-#define M1_RATE_LIMIT_HZ             8000U   /* 緩和:降低單次變化量 */
 
 /* =========================================================================
- *  PID - Motor2 (原本數值)
+ *  控制 - Motor2 (原本數值)
  * ========================================================================= */
 #define M2_KP_SMALL                  180.0f
 #define M2_KP_MEDIUM                 360.0f
 #define M2_KP_LARGE                  620.0f
-#define M2_KI                        8.0f
-#define M2_KD                        18.0f
 #define M2_OUTPUT_GAIN               2.0f
 #define M2_POS_SCALE                 1.02f
 #define M2_NEG_SCALE                 1.16f
 #define M2_MAX_STEP_HZ               60000U
-#define M2_RATE_LIMIT_HZ             13750U
 
 /* =========================================================================
  *  串口

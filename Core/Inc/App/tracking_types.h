@@ -55,13 +55,6 @@ typedef struct {
   uint8_t  calibration_done;
 } LdrTrackingFrame_t;
 
-/* 單軸 PID 狀態 */
-typedef struct {
-  float    prev_error;
-  float    integrator;
-  int32_t  prev_output_hz;
-} AxisController_t;
-
 /* 雙軸運動指令 */
 typedef struct {
   int32_t axis1_step_hz;

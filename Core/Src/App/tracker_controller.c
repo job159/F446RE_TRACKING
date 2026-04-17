@@ -2,32 +2,27 @@
 #include "App/tracking_config.h"
 #include <string.h>
 
-/* 一組軸的 PID 參數 (從 tracking_config.h 帶入) */
+/* 一組軸的參數 (從 tracking_config.h 帶入) */
 typedef struct {
   float    kp_small;
   float    kp_medium;
   float    kp_large;
-  float    ki;
-  float    kd;
   float    output_gain;
   float    pos_scale;
   float    neg_scale;
   uint16_t max_step_hz;
-  uint16_t rate_limit_hz;
 } AxisParams_t;
 
 static const AxisParams_t M1_PARAMS = {
   M1_KP_SMALL, M1_KP_MEDIUM, M1_KP_LARGE,
-  M1_KI, M1_KD,
   M1_OUTPUT_GAIN, M1_POS_SCALE, M1_NEG_SCALE,
-  M1_MAX_STEP_HZ, M1_RATE_LIMIT_HZ
+  M1_MAX_STEP_HZ
 };
 
 static const AxisParams_t M2_PARAMS = {
   M2_KP_SMALL, M2_KP_MEDIUM, M2_KP_LARGE,
-  M2_KI, M2_KD,
   M2_OUTPUT_GAIN, M2_POS_SCALE, M2_NEG_SCALE,
-  M2_MAX_STEP_HZ, M2_RATE_LIMIT_HZ
+  M2_MAX_STEP_HZ
 };
 
 /* 依誤差大小選 KP */
@@ -38,48 +33,25 @@ static float pick_kp(const AxisParams_t *p, float abs_err)
   return p->kp_large;
 }
 
-/* 單軸 PID,回傳 step hz */
-static int32_t run_axis(AxisController_t *ax, const AxisParams_t *p,
-                        float error, uint32_t period_ms)
+/* 純比例控制,回傳 step hz
+ * 沒有積分、沒有微分、沒有速率限制、沒有記憶。
+ * 每個 cycle 都重新從當下誤差算,不受歷史影響。 */
+static int32_t run_axis(const AxisParams_t *p, float error)
 {
-  if (period_ms == 0) return 0;
-
-  float dt = (float)period_ms / 1000.0f;
   float abs_e = (error < 0) ? -error : error;
 
-  /* 死區: 誤差太小直接停,並讓積分器衰減 */
-  if (abs_e <= PID_ERR_DEADBAND)
-  {
-    ax->integrator   *= PID_INTEGRATOR_DECAY;
-    ax->prev_error    = error;
-    ax->prev_output_hz = 0;
-    return 0;
-  }
+  /* 死區: 誤差太小直接停 */
+  if (abs_e <= PID_ERR_DEADBAND) return 0;
 
-  float kp    = pick_kp(p, abs_e);
-  float deriv = (error - ax->prev_error) / dt;
-
-  /* 中小誤差才積分,避免 windup */
-  if (abs_e <= PID_ERR_MEDIUM)
-    ax->integrator += error * p->ki * dt;
-
-  float out = (kp * error + ax->integrator + p->kd * deriv) * p->output_gain;
+  float kp  = pick_kp(p, abs_e);
+  float out = kp * error * p->output_gain;
   out *= (out >= 0) ? p->pos_scale : p->neg_scale;
 
   /* 輸出限幅 */
   if (out > (float)p->max_step_hz)  out =  (float)p->max_step_hz;
   if (out < -(float)p->max_step_hz) out = -(float)p->max_step_hz;
 
-  int32_t hz = (int32_t)out;
-
-  /* 速率限制 */
-  int32_t delta = hz - ax->prev_output_hz;
-  if (delta >  (int32_t)p->rate_limit_hz) hz = ax->prev_output_hz + (int32_t)p->rate_limit_hz;
-  if (delta < -(int32_t)p->rate_limit_hz) hz = ax->prev_output_hz - (int32_t)p->rate_limit_hz;
-
-  ax->prev_error    = error;
-  ax->prev_output_hz = hz;
-  return hz;
+  return (int32_t)out;
 }
 
 void TrackerController_Init(TrackerController_HandleTypeDef *h)
@@ -95,11 +67,14 @@ void TrackerController_Reset(TrackerController_HandleTypeDef *h)
 MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
     const LdrTrackingFrame_t *frame, uint32_t period_ms)
 {
+  (void)h;         /* 純比例控制不需要狀態 */
+  (void)period_ms; /* 沒有積分/微分,不需要 dt */
+
   MotionCommand_t cmd = {0, 0};
   if (frame == NULL || !frame->is_valid) return cmd;
 
   /* 乘上 M*_TRACK_DIR 可整軸翻轉追蹤方向(機構裝反時用) */
-  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&h->axis1, &M1_PARAMS, frame->error_x, period_ms);
-  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&h->axis2, &M2_PARAMS, frame->error_y, period_ms);
+  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&M1_PARAMS, frame->error_x);
+  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&M2_PARAMS, frame->error_y);
   return cmd;
 }
