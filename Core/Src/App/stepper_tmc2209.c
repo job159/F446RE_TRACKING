@@ -5,22 +5,28 @@
 #define SYNC_BYTE       0x05
 #define WRITE_BIT       0x80
 #define REG_GCONF       0x00
+#define REG_IFCNT       0x02
+#define REG_SLAVECONF   0x03
 #define REG_IHOLD_IRUN  0x10
 #define REG_CHOPCONF    0x6C
 #define REG_PWMCONF     0x70
 #define FRAME_LEN       8
+#define READ_FRAME_LEN  4
 #define UART_TIMEOUT     30
+#define DEFAULT_MICROSTEPS 16U
 
 /* 暫存器預設值 */
 #define GCONF_VAL        ((1UL << 6) | (1UL << 7))             /* pdn_disable + mstep_reg_select */
-#define IHOLD_IRUN_VAL   ((4UL << 16) | (16UL << 8) | 6UL)    /* iholddelay=4, irun=16, ihold=6 */
-#define CHOPCONF_VAL     0x10000053UL                           /* base + mres=1/16 (已含在base) */
+#define IHOLD_DEFAULT    6U
+#define IRUN_DEFAULT     16U
+#define IHOLDDELAY_DEFAULT 4U
+#define IHOLD_IRUN_VAL   ((IHOLDDELAY_DEFAULT << 16) | (IRUN_DEFAULT << 8) | IHOLD_DEFAULT)
+#define CHOPCONF_VAL     0x10000053UL                           /* base chopper setting, MRES另外套用 */
 #define PWMCONF_VAL      0xC10D0024UL
+#define SLAVECONF_VAL    (0x0FUL << 8)                           /* max read reply delay */
 
-/* 1/16微步的CHOPCONF，手動設mres欄位 */
+/* CHOPCONF bit[27:24] = MRES */
 #define CHOPCONF_MRES_MASK   (0x0FUL << 24)
-#define CHOPCONF_MRES_16     (0x04UL << 24)
-#define CHOPCONF_FINAL       ((CHOPCONF_VAL & ~CHOPCONF_MRES_MASK) | CHOPCONF_MRES_16)
 
 /* 加減速參數 */
 #define RAMP_STEP_HZ     800
@@ -66,6 +72,63 @@ static uint32_t get_timer_clock(const TIM_HandleTypeDef *htim)
   return pclk1 * 2;
 }
 
+static uint8_t microsteps_to_mres(uint16_t microsteps, uint8_t *mres)
+{
+  if (mres == NULL) return 0;
+
+  switch (microsteps)
+  {
+  case 256: *mres = 0; return 1;
+  case 128: *mres = 1; return 1;
+  case 64:  *mres = 2; return 1;
+  case 32:  *mres = 3; return 1;
+  case 16:  *mres = 4; return 1;
+  case 8:   *mres = 5; return 1;
+  case 4:   *mres = 6; return 1;
+  case 2:   *mres = 7; return 1;
+  case 1:   *mres = 8; return 1;
+  default:  return 0;
+  }
+}
+
+static uint8_t make_chopconf(uint16_t microsteps, uint32_t *out)
+{
+  uint8_t mres;
+  if (out == NULL || !microsteps_to_mres(microsteps, &mres)) return 0;
+
+  *out = (CHOPCONF_VAL & ~CHOPCONF_MRES_MASK) | ((uint32_t)mres << 24);
+  return 1;
+}
+
+static uint8_t make_ihold_irun(StepperTmc2209_CurrentConfig_t cfg, uint32_t *out)
+{
+  if (out == NULL) return 0;
+  if (cfg.ihold > 31U || cfg.irun > 31U || cfg.iholddelay > 15U) return 0;
+
+  *out = ((uint32_t)cfg.iholddelay << 16) |
+         ((uint32_t)cfg.irun << 8) |
+         (uint32_t)cfg.ihold;
+  return 1;
+}
+
+static void clear_uart_rx(UART_HandleTypeDef *huart)
+{
+  if (huart == NULL) return;
+
+  if (__HAL_UART_GET_FLAG(huart, UART_FLAG_ORE))
+    __HAL_UART_CLEAR_OREFLAG(huart);
+  if (__HAL_UART_GET_FLAG(huart, UART_FLAG_NE))
+    __HAL_UART_CLEAR_NEFLAG(huart);
+  if (__HAL_UART_GET_FLAG(huart, UART_FLAG_FE))
+    __HAL_UART_CLEAR_FEFLAG(huart);
+
+  while (__HAL_UART_GET_FLAG(huart, UART_FLAG_RXNE))
+  {
+    volatile uint32_t dr = huart->Instance->DR;
+    (void)dr;
+  }
+}
+
 /* 寫一個TMC2209暫存器 */
 static HAL_StatusTypeDef write_reg(const StepperTmc2209_HandleTypeDef *h,
     uint8_t reg, uint32_t val)
@@ -83,12 +146,52 @@ static HAL_StatusTypeDef write_reg(const StepperTmc2209_HandleTypeDef *h,
   return HAL_UART_Transmit(h->huart, frame, FRAME_LEN, UART_TIMEOUT);
 }
 
+static HAL_StatusTypeDef read_reg(StepperTmc2209_HandleTypeDef *h,
+    uint8_t reg, uint32_t *val)
+{
+  if (h == NULL || h->huart == NULL || val == NULL) return HAL_ERROR;
+
+  uint8_t req[READ_FRAME_LEN];
+  uint8_t reply[FRAME_LEN];
+
+  req[0] = SYNC_BYTE;
+  req[1] = h->slave_addr;
+  req[2] = reg & 0x7FU;
+  req[3] = calc_crc8(req, 3);
+
+  clear_uart_rx(h->huart);
+
+  HAL_StatusTypeDef st = HAL_UART_Transmit(h->huart, req, READ_FRAME_LEN, UART_TIMEOUT);
+  if (st != HAL_OK) return st;
+
+  clear_uart_rx(h->huart);
+
+  st = HAL_UART_Receive(h->huart, reply, FRAME_LEN, UART_TIMEOUT);
+  if (st != HAL_OK) return st;
+
+  if (reply[0] != SYNC_BYTE || reply[1] != 0xFFU || reply[2] != (reg & 0x7FU))
+    return HAL_ERROR;
+  if (reply[7] != calc_crc8(reply, 7))
+    return HAL_ERROR;
+
+  *val = ((uint32_t)reply[3] << 24) |
+         ((uint32_t)reply[4] << 16) |
+         ((uint32_t)reply[5] << 8) |
+         (uint32_t)reply[6];
+  return HAL_OK;
+}
+
 /* 初始化TMC2209的四個暫存器 */
 static HAL_StatusTypeDef config_registers(const StepperTmc2209_HandleTypeDef *h)
 {
   HAL_StatusTypeDef st;
+  uint32_t chopconf;
 
   st = write_reg(h, REG_GCONF, GCONF_VAL);
+  if (st != HAL_OK) return st;
+  HAL_Delay(1);
+
+  st = write_reg(h, REG_SLAVECONF, SLAVECONF_VAL);
   if (st != HAL_OK) return st;
   HAL_Delay(1);
 
@@ -96,7 +199,8 @@ static HAL_StatusTypeDef config_registers(const StepperTmc2209_HandleTypeDef *h)
   if (st != HAL_OK) return st;
   HAL_Delay(1);
 
-  st = write_reg(h, REG_CHOPCONF, CHOPCONF_FINAL);
+  if (!make_chopconf(h->microsteps, &chopconf)) return HAL_ERROR;
+  st = write_reg(h, REG_CHOPCONF, chopconf);
   if (st != HAL_OK) return st;
   HAL_Delay(1);
 
@@ -189,6 +293,10 @@ HAL_StatusTypeDef StepperTmc2209_Init(
   h->speed_index  = 0;
   h->current_hz   = 0;
   h->current_dir  = GPIO_PIN_RESET;
+  h->microsteps   = DEFAULT_MICROSTEPS;
+  h->current_config.ihold = IHOLD_DEFAULT;
+  h->current_config.irun = IRUN_DEFAULT;
+  h->current_config.iholddelay = IHOLDDELAY_DEFAULT;
 
   const uint16_t *table = default_table;
   if (speed_table != NULL) table = speed_table;
@@ -315,7 +423,73 @@ HAL_StatusTypeDef StepperTmc2209_SetSignedHz(StepperTmc2209_HandleTypeDef *h, in
   return st;
 }
 
+HAL_StatusTypeDef StepperTmc2209_SetMicrosteps(StepperTmc2209_HandleTypeDef *h, uint16_t microsteps)
+{
+  uint32_t chopconf;
+  if (h == NULL || !make_chopconf(microsteps, &chopconf)) return HAL_ERROR;
+
+  HAL_StatusTypeDef st = write_reg(h, REG_GCONF, GCONF_VAL);
+  if (st != HAL_OK) return st;
+  HAL_Delay(1);
+
+  st = write_reg(h, REG_CHOPCONF, chopconf);
+  if (st == HAL_OK)
+    h->microsteps = microsteps;
+  return st;
+}
+
+HAL_StatusTypeDef StepperTmc2209_SetCurrentConfig(StepperTmc2209_HandleTypeDef *h,
+    StepperTmc2209_CurrentConfig_t cfg)
+{
+  uint32_t ihold_irun;
+  if (h == NULL || !make_ihold_irun(cfg, &ihold_irun)) return HAL_ERROR;
+
+  HAL_StatusTypeDef st = write_reg(h, REG_IHOLD_IRUN, ihold_irun);
+  if (st == HAL_OK)
+    h->current_config = cfg;
+  return st;
+}
+
+HAL_StatusTypeDef StepperTmc2209_ReadGconf(StepperTmc2209_HandleTypeDef *h, uint32_t *gconf)
+{
+  return read_reg(h, REG_GCONF, gconf);
+}
+
+HAL_StatusTypeDef StepperTmc2209_ReadIfcnt(StepperTmc2209_HandleTypeDef *h, uint8_t *ifcnt)
+{
+  uint32_t val;
+  if (ifcnt == NULL) return HAL_ERROR;
+
+  HAL_StatusTypeDef st = read_reg(h, REG_IFCNT, &val);
+  if (st == HAL_OK)
+    *ifcnt = (uint8_t)(val & 0xFFU);
+  return st;
+}
+
+HAL_StatusTypeDef StepperTmc2209_ReadIholdIrun(StepperTmc2209_HandleTypeDef *h, uint32_t *ihold_irun)
+{
+  return read_reg(h, REG_IHOLD_IRUN, ihold_irun);
+}
+
+HAL_StatusTypeDef StepperTmc2209_ReadChopconf(StepperTmc2209_HandleTypeDef *h, uint32_t *chopconf)
+{
+  return read_reg(h, REG_CHOPCONF, chopconf);
+}
+
 uint8_t StepperTmc2209_GetSpeedStage(const StepperTmc2209_HandleTypeDef *h)
 {
   return h->speed_index;
+}
+
+uint16_t StepperTmc2209_GetMicrosteps(const StepperTmc2209_HandleTypeDef *h)
+{
+  if (h == NULL) return 0;
+  return h->microsteps;
+}
+
+StepperTmc2209_CurrentConfig_t StepperTmc2209_GetCurrentConfig(const StepperTmc2209_HandleTypeDef *h)
+{
+  StepperTmc2209_CurrentConfig_t cfg = {0};
+  if (h == NULL) return cfg;
+  return h->current_config;
 }

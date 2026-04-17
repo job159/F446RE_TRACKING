@@ -58,6 +58,60 @@ static int32_t parse_period(const char *s, uint8_t *ok)
   return parse_int(buf, ok);
 }
 
+static int32_t parse_microsteps(const char *s, uint8_t *ok)
+{
+  int32_t v = parse_int(s, ok);
+  if (ok != NULL && *ok == 0) return 0;
+
+  switch (v)
+  {
+  case 1:
+  case 2:
+  case 4:
+  case 8:
+  case 16:
+  case 32:
+  case 64:
+  case 128:
+  case 256:
+    return v;
+  default:
+    if (ok) *ok = 0;
+    return 0;
+  }
+}
+
+static uint8_t parse_current_args(const char *s, uint8_t *irun, uint8_t *ihold, uint8_t *iholddelay)
+{
+  if (s == NULL || irun == NULL || ihold == NULL || iholddelay == NULL) return 0;
+
+  char buf[SERIAL_CMD_RX_LINE_MAX];
+  size_t len = strlen(s);
+  if (len >= sizeof(buf)) return 0;
+  memcpy(buf, s, len + 1U);
+
+  char *tok_irun = strtok(buf, " ");
+  char *tok_ihold = strtok(NULL, " ");
+  char *tok_delay = strtok(NULL, " ");
+  if (tok_irun == NULL || tok_ihold == NULL || tok_delay == NULL || strtok(NULL, " ") != NULL)
+    return 0;
+
+  uint8_t ok = 0;
+  int32_t parsed_irun = parse_int(tok_irun, &ok);
+  if (!ok || parsed_irun < 0 || parsed_irun > 31) return 0;
+
+  int32_t parsed_ihold = parse_int(tok_ihold, &ok);
+  if (!ok || parsed_ihold < 0 || parsed_ihold > 31) return 0;
+
+  int32_t parsed_delay = parse_int(tok_delay, &ok);
+  if (!ok || parsed_delay < 0 || parsed_delay > 15) return 0;
+
+  *irun = (uint8_t)parsed_irun;
+  *ihold = (uint8_t)parsed_ihold;
+  *iholddelay = (uint8_t)parsed_delay;
+  return 1;
+}
+
 /* 解析手動stage: "1"~"8", "F1"~"F4", "R1"~"R4" */
 static int32_t parse_stage(const char *s, uint8_t *ok)
 {
@@ -114,6 +168,11 @@ static void parse_line(SerialCmd_HandleTypeDef *h, const uint8_t *line, uint8_t 
   if (strcmp(txt, "MANUAL") == 0 || strcmp(txt, "2") == 0 || strcmp(txt, "MODE 2") == 0)
   { enqueue(h, SERIAL_CMD_MODE_MANUAL, 0); return; }
 
+  if (strcmp(txt, "MSTEP") == 0 || strcmp(txt, "MICRO") == 0 ||
+      strcmp(txt, "MICROSTEP") == 0 || strcmp(txt, "3") == 0 ||
+      strcmp(txt, "MODE 3") == 0)
+  { enqueue(h, SERIAL_CMD_MODE_MICROSTEP, 0); return; }
+
   /* 校正/查詢 */
   if (strcmp(txt, "RECAL") == 0 || strcmp(txt, "CAL") == 0)
   { enqueue(h, SERIAL_CMD_RECALIBRATE, 0); return; }
@@ -127,6 +186,10 @@ static void parse_line(SerialCmd_HandleTypeDef *h, const uint8_t *line, uint8_t 
   if (strcmp(txt, "CONFIG") == 0 || strcmp(txt, "CFG?") == 0)
   { enqueue(h, SERIAL_CMD_CONFIG_QUERY, 0); return; }
 
+  if (strcmp(txt, "MCHK") == 0 || strcmp(txt, "MSTEP?") == 0 ||
+      strcmp(txt, "TMC?") == 0)
+  { enqueue(h, SERIAL_CMD_MICROSTEP_CHECK, 0); return; }
+
   if (strcmp(txt, "HELP") == 0)
   { enqueue(h, SERIAL_CMD_HELP, 0); return; }
 
@@ -137,6 +200,39 @@ static void parse_line(SerialCmd_HandleTypeDef *h, const uint8_t *line, uint8_t 
     if (txt[0] == 'C') p = &txt[4];
     int32_t ms = parse_period(p, &ok);
     if (ok) enqueue(h, SERIAL_CMD_CONTROL_PERIOD, ms);
+    return;
+  }
+
+  /* 細分: "MS 16", "MSTEP 32", "MICRO 256" */
+  if (strncmp(txt, "MS ", 3) == 0 || strncmp(txt, "MSTEP ", 6) == 0 ||
+      strncmp(txt, "MICRO ", 6) == 0 || strncmp(txt, "MICROSTEP ", 10) == 0)
+  {
+    const char *p = &txt[3];
+    if (strncmp(txt, "MICROSTEP ", 10) == 0) p = &txt[10];
+    else if (strncmp(txt, "MSTEP ", 6) == 0) p = &txt[6];
+    else if (strncmp(txt, "MICRO ", 6) == 0) p = &txt[6];
+
+    int32_t ms = parse_microsteps(p, &ok);
+    if (ok) enqueue(h, SERIAL_CMD_MICROSTEP_SET, ms);
+    return;
+  }
+
+  /* 電流: "CUR 16 6 4" = IRUN IHOLD IHOLDDELAY */
+  if (strncmp(txt, "CUR ", 4) == 0 || strncmp(txt, "CURRENT ", 8) == 0)
+  {
+    const char *p = &txt[4];
+    if (strncmp(txt, "CURRENT ", 8) == 0) p = &txt[8];
+
+    uint8_t irun = 0;
+    uint8_t ihold = 0;
+    uint8_t iholddelay = 0;
+    if (parse_current_args(p, &irun, &ihold, &iholddelay))
+    {
+      int32_t packed = ((int32_t)iholddelay << 16) |
+                       ((int32_t)irun << 8) |
+                       (int32_t)ihold;
+      enqueue(h, SERIAL_CMD_CURRENT_SET, packed);
+    }
     return;
   }
 

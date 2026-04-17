@@ -12,7 +12,8 @@ typedef enum {
   MODE_IDLE = 0,
   MODE_TRACKING,
   MODE_SEARCH,
-  MODE_MANUAL
+  MODE_MANUAL,
+  MODE_MICROSTEP
 } SystemMode_t;
 
 /* IDLE子狀態 */
@@ -34,7 +35,11 @@ typedef enum {
   SERIAL_CMD_MODE_IDLE,
   SERIAL_CMD_MODE_TRACKING,
   SERIAL_CMD_MODE_MANUAL,
+  SERIAL_CMD_MODE_MICROSTEP,
   SERIAL_CMD_MANUAL_STAGE,
+  SERIAL_CMD_MICROSTEP_SET,
+  SERIAL_CMD_MICROSTEP_CHECK,
+  SERIAL_CMD_CURRENT_SET,
   SERIAL_CMD_RECALIBRATE,
   SERIAL_CMD_STATUS_QUERY,
   SERIAL_CMD_CAL_QUERY,
@@ -100,6 +105,10 @@ typedef struct {
   uint8_t source_valid;
   uint8_t manual_stage_valid;
   uint8_t manual_stage;
+  uint16_t microsteps;
+  uint8_t tmc_ihold;
+  uint8_t tmc_irun;
+  uint8_t tmc_iholddelay;
   uint16_t adc[4];
   uint16_t baseline[4];
   uint16_t delta[4];

@@ -13,6 +13,7 @@ static const char *mode_str(SystemMode_t m)
   case MODE_TRACKING: return "TRACK";
   case MODE_SEARCH:   return "SEARCH";
   case MODE_MANUAL:   return "MANUAL";
+  case MODE_MICROSTEP: return "MSTEP";
   default:            return "?";
   }
 }
@@ -64,10 +65,10 @@ void Telemetry_Task(Telemetry_HandleTypeDef *h, const TelemetrySnapshot_t *snap)
 
   char buf[TX_BUF_SIZE];
   int len = snprintf(buf, sizeof(buf),
-      "%u mode:%s sub:%s cal:%u valid:%u "
+      "%lu mode:%s sub:%s cal:%u valid:%u "
       "adc:%u,%u,%u,%u base:%u,%u,%u,%u d:%u,%u,%u,%u "
-      "err:%d,%d cmd:%d,%d enc:%d,%d stg:%u\r\n",
-      h->seq,
+      "err:%ld,%ld cmd:%ld,%ld enc:%ld,%ld stg:%u mstep:%u cur:%u,%u,%u\r\n",
+      (unsigned long)h->seq,
       mode_str(snap->mode),
       sub_str(snap),
       snap->calibration_done,
@@ -75,10 +76,14 @@ void Telemetry_Task(Telemetry_HandleTypeDef *h, const TelemetrySnapshot_t *snap)
       snap->adc[0], snap->adc[1], snap->adc[2], snap->adc[3],
       snap->baseline[0], snap->baseline[1], snap->baseline[2], snap->baseline[3],
       snap->delta[0], snap->delta[1], snap->delta[2], snap->delta[3],
-      snap->error_x_x1000, snap->error_y_x1000,
-      snap->cmd_axis1_hz, snap->cmd_axis2_hz,
-      snap->enc1_count, snap->enc2_count,
-      stg_display);
+      (long)snap->error_x_x1000, (long)snap->error_y_x1000,
+      (long)snap->cmd_axis1_hz, (long)snap->cmd_axis2_hz,
+      (long)snap->enc1_count, (long)snap->enc2_count,
+      stg_display,
+      (unsigned)snap->microsteps,
+      (unsigned)snap->tmc_irun,
+      (unsigned)snap->tmc_ihold,
+      (unsigned)snap->tmc_iholddelay);
 
   if (len <= 0) return;
   if (len > (int)(sizeof(buf) - 1)) len = sizeof(buf) - 1;

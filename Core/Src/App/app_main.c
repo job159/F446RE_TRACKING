@@ -15,6 +15,11 @@
 
 #define TEXT_BUF_SIZE        192
 #define BUTTON_DEBOUNCE_MS   180
+#define MICROSTEP_OPTION_COUNT 9U
+
+static const uint16_t microstep_options[MICROSTEP_OPTION_COUNT] = {
+  1, 2, 4, 8, 16, 32, 64, 128, 256
+};
 
 /* 整個App的全域狀態 */
 typedef struct {
@@ -58,6 +63,7 @@ static const char *mode_text(SystemMode_t m)
   case MODE_TRACKING: return "TRACK";
   case MODE_SEARCH:   return "SEARCH";
   case MODE_MANUAL:   return "MANUAL";
+  case MODE_MICROSTEP: return "MSTEP";
   default:            return "?";
   }
 }
@@ -126,6 +132,24 @@ static void enter_manual(void)
   }
 }
 
+static void enter_microstep(uint8_t announce)
+{
+  MotorControl_StopAll(&g.motor);
+  TrackerController_Reset(&g.tracker);
+  ManualControl_Reset(&g.manual);
+  MotorControl_ClearManualStage(&g.motor);
+  g.req_stage_valid = 0;
+  g.mode = MODE_MICROSTEP;
+
+  if (announce)
+  {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "MODE MSTEP current:1/%u\r\n",
+        MotorControl_GetMicrosteps(&g.motor));
+    send_line(buf);
+  }
+}
+
 static void finalize_cal(void)
 {
   LdrTracking_FinalizeCalibration(&g.ldr);
@@ -139,6 +163,11 @@ static void finalize_cal(void)
   {
     g.mode_after_cal = MODE_IDLE;
     enter_manual();
+  }
+  else if (g.mode_after_cal == MODE_MICROSTEP)
+  {
+    g.mode_after_cal = MODE_IDLE;
+    enter_microstep(1);
   }
   else
   {
@@ -159,14 +188,18 @@ static void send_status(void)
   }
 
   snprintf(buf, sizeof(buf),
-      "STATUS mode:%s idle:%s cal:%u valid:%u total:%u contrast:%u cmd:%d,%d\r\n",
+      "STATUS mode:%s idle:%s cal:%u valid:%u total:%u contrast:%u cmd:%ld,%ld mstep:%u cur:%u,%u,%u\r\n",
       mode_text(g.mode), idle_str,
       g.ldr.frame.calibration_done,
       g.ldr.frame.is_valid,
       g.ldr.frame.total,
       g.ldr.frame.contrast,
-      g.motor.last_cmd.axis1_step_hz,
-      g.motor.last_cmd.axis2_step_hz);
+      (long)g.motor.last_cmd.axis1_step_hz,
+      (long)g.motor.last_cmd.axis2_step_hz,
+      (unsigned)MotorControl_GetMicrosteps(&g.motor),
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).irun,
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).ihold,
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).iholddelay);
   send_line(buf);
 }
 
@@ -187,16 +220,20 @@ static void send_config(void)
 {
   char buf[TEXT_BUF_SIZE];
   snprintf(buf, sizeof(buf),
-      "CONFIG period_ms:%u track_min:%u contrast_min:%u deadband_x1000:%d "
-      "gain_x1000:%d,%d max_hz:%u,%u\r\n",
-      g.ctrl_period_ms,
+      "CONFIG period_ms:%lu track_min:%u contrast_min:%u deadband_x1000:%ld "
+      "gain_x1000:%ld,%ld max_hz:%u,%u mstep:%u cur:%u,%u,%u\r\n",
+      (unsigned long)g.ctrl_period_ms,
       TRACK_VALID_TOTAL_MIN,
       TRACK_DIRECTION_CONTRAST_MIN,
-      float_to_x1000(CTRL_ERR_DEADBAND),
-      float_to_x1000(CTRL_AXIS1_OUTPUT_GAIN),
-      float_to_x1000(CTRL_AXIS2_OUTPUT_GAIN),
+      (long)float_to_x1000(CTRL_ERR_DEADBAND),
+      (long)float_to_x1000(CTRL_AXIS1_OUTPUT_GAIN),
+      (long)float_to_x1000(CTRL_AXIS2_OUTPUT_GAIN),
       CTRL_AXIS1_MAX_STEP_HZ,
-      CTRL_AXIS2_MAX_STEP_HZ);
+      CTRL_AXIS2_MAX_STEP_HZ,
+      (unsigned)MotorControl_GetMicrosteps(&g.motor),
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).irun,
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).ihold,
+      (unsigned)MotorControl_GetCurrentConfig(&g.motor).iholddelay);
   send_line(buf);
 }
 
@@ -211,7 +248,7 @@ static void set_ctrl_period(uint32_t ms)
   g.ctrl_period_ms = ms;
 
   char buf[64];
-  snprintf(buf, sizeof(buf), "PERIOD %uMS OK\r\n", ms);
+  snprintf(buf, sizeof(buf), "PERIOD %luMS OK\r\n", (unsigned long)ms);
   send_line(buf);
 }
 
@@ -254,6 +291,145 @@ static void request_manual_stage(uint8_t stage, uint8_t during_cal)
   }
 }
 
+static uint8_t microstep_option_index(uint16_t microsteps)
+{
+  for (uint8_t i = 0; i < MICROSTEP_OPTION_COUNT; i++)
+  {
+    if (microstep_options[i] == microsteps) return i;
+  }
+  return 4; /* default 1/16 */
+}
+
+static void send_microstep_notice(uint16_t microsteps, const char *state)
+{
+  char buf[64];
+  const char *label = "OK";
+  if (state != NULL) label = state;
+
+  snprintf(buf, sizeof(buf), "MSTEP 1/%u %s\r\n", microsteps, label);
+  send_line(buf);
+}
+
+static void apply_microsteps(uint16_t microsteps)
+{
+  HAL_StatusTypeDef st = MotorControl_SetMicrosteps(&g.motor, microsteps);
+  if (st == HAL_OK)
+  {
+    send_microstep_notice(microsteps, "OK");
+    return;
+  }
+
+  send_line("ERR mstep use 1|2|4|8|16|32|64|128|256\r\n");
+}
+
+static void apply_current_config(int32_t packed)
+{
+  StepperTmc2209_CurrentConfig_t cfg;
+  cfg.ihold = (uint8_t)(packed & 0x1FU);
+  cfg.irun = (uint8_t)((packed >> 8) & 0x1FU);
+  cfg.iholddelay = (uint8_t)((packed >> 16) & 0x0FU);
+
+  HAL_StatusTypeDef st = MotorControl_SetCurrentConfig(&g.motor, cfg);
+
+  char buf[64];
+  if (st == HAL_OK)
+  {
+    snprintf(buf, sizeof(buf), "CUR %u,%u,%u OK\r\n",
+        (unsigned)cfg.irun,
+        (unsigned)cfg.ihold,
+        (unsigned)cfg.iholddelay);
+  }
+  else
+  {
+    snprintf(buf, sizeof(buf), "ERR CUR %u,%u,%u uart\r\n",
+        (unsigned)cfg.irun,
+        (unsigned)cfg.ihold,
+        (unsigned)cfg.iholddelay);
+  }
+  send_line(buf);
+}
+
+static uint16_t chopconf_to_microsteps(uint32_t chopconf)
+{
+  uint8_t mres = (uint8_t)((chopconf >> 24) & 0x0FU);
+
+  switch (mres)
+  {
+  case 0: return 256;
+  case 1: return 128;
+  case 2: return 64;
+  case 3: return 32;
+  case 4: return 16;
+  case 5: return 8;
+  case 6: return 4;
+  case 7: return 2;
+  case 8: return 1;
+  default: return 0;
+  }
+}
+
+static StepperTmc2209_CurrentConfig_t ihold_irun_to_current_config(uint32_t ihold_irun)
+{
+  StepperTmc2209_CurrentConfig_t cfg;
+  cfg.ihold = (uint8_t)(ihold_irun & 0x1FU);
+  cfg.irun = (uint8_t)((ihold_irun >> 8) & 0x1FU);
+  cfg.iholddelay = (uint8_t)((ihold_irun >> 16) & 0x0FU);
+  return cfg;
+}
+
+static void send_microstep_check(void)
+{
+  MotorControl_TmcDebug_t dbg;
+  HAL_StatusTypeDef st = MotorControl_ReadTmcDebug(&g.motor, &dbg);
+
+  char buf[TEXT_BUF_SIZE];
+
+  snprintf(buf, sizeof(buf),
+      "MCHK ok:%u sw:1/%u\r\n",
+      (unsigned)(st == HAL_OK),
+      (unsigned)MotorControl_GetMicrosteps(&g.motor));
+  send_line(buf);
+
+  snprintf(buf, sizeof(buf),
+      "MCHK A1 s:%u,%u,%u,%u ifcnt:%u gconf:0x%08lX ihold_irun:0x%08lX cur:%u,%u,%u chop:0x%08lX ms:1/%u\r\n",
+      (unsigned)dbg.axis1_ifcnt_status,
+      (unsigned)dbg.axis1_gconf_status,
+      (unsigned)dbg.axis1_ihold_irun_status,
+      (unsigned)dbg.axis1_chopconf_status,
+      (unsigned)dbg.axis1_ifcnt,
+      (unsigned long)dbg.axis1_gconf,
+      (unsigned long)dbg.axis1_ihold_irun,
+      (unsigned)ihold_irun_to_current_config(dbg.axis1_ihold_irun).irun,
+      (unsigned)ihold_irun_to_current_config(dbg.axis1_ihold_irun).ihold,
+      (unsigned)ihold_irun_to_current_config(dbg.axis1_ihold_irun).iholddelay,
+      (unsigned long)dbg.axis1_chopconf,
+      (unsigned)chopconf_to_microsteps(dbg.axis1_chopconf));
+  send_line(buf);
+
+  snprintf(buf, sizeof(buf),
+      "MCHK A2 s:%u,%u,%u,%u ifcnt:%u gconf:0x%08lX ihold_irun:0x%08lX cur:%u,%u,%u chop:0x%08lX ms:1/%u\r\n",
+      (unsigned)dbg.axis2_ifcnt_status,
+      (unsigned)dbg.axis2_gconf_status,
+      (unsigned)dbg.axis2_ihold_irun_status,
+      (unsigned)dbg.axis2_chopconf_status,
+      (unsigned)dbg.axis2_ifcnt,
+      (unsigned long)dbg.axis2_gconf,
+      (unsigned long)dbg.axis2_ihold_irun,
+      (unsigned)ihold_irun_to_current_config(dbg.axis2_ihold_irun).irun,
+      (unsigned)ihold_irun_to_current_config(dbg.axis2_ihold_irun).ihold,
+      (unsigned)ihold_irun_to_current_config(dbg.axis2_ihold_irun).iholddelay,
+      (unsigned long)dbg.axis2_chopconf,
+      (unsigned)chopconf_to_microsteps(dbg.axis2_chopconf));
+  send_line(buf);
+}
+
+static void cycle_microsteps(void)
+{
+  uint8_t idx = microstep_option_index(MotorControl_GetMicrosteps(&g.motor));
+  uint8_t next_idx = (uint8_t)((idx + 1U) % MICROSTEP_OPTION_COUNT);
+  apply_microsteps(microstep_options[next_idx]);
+}
+
 /* ---- 按鈕 ---- */
 
 static void handle_button(uint32_t now)
@@ -262,6 +438,12 @@ static void handle_button(uint32_t now)
   g.last_btn_tick = now;
 
   uint8_t next;
+
+  if (g.mode == MODE_MICROSTEP)
+  {
+    cycle_microsteps();
+    return;
+  }
 
   /* 校正中按按鈕 -> 排隊手動stage */
   if (g.mode == MODE_IDLE && g.idle_sub == IDLE_CALIBRATING)
@@ -315,8 +497,36 @@ static void handle_cmd(const SerialCmd_t *cmd, uint32_t now)
     else enter_manual();
     break;
 
+  case SERIAL_CMD_MODE_MICROSTEP:
+    if (is_cal)
+    {
+      g.mode_after_cal = MODE_MICROSTEP;
+      send_line("MODE MSTEP QUEUED\r\n");
+    }
+    else
+    {
+      enter_microstep(1);
+    }
+    break;
+
   case SERIAL_CMD_MANUAL_STAGE:
     request_manual_stage((uint8_t)cmd->arg0, is_cal);
+    break;
+
+  case SERIAL_CMD_MICROSTEP_SET:
+    if (is_cal)
+      g.mode_after_cal = MODE_MICROSTEP;
+    else
+      enter_microstep(0);
+    apply_microsteps((uint16_t)cmd->arg0);
+    break;
+
+  case SERIAL_CMD_MICROSTEP_CHECK:
+    send_microstep_check();
+    break;
+
+  case SERIAL_CMD_CURRENT_SET:
+    apply_current_config(cmd->arg0);
     break;
 
   case SERIAL_CMD_RECALIBRATE:
@@ -328,7 +538,7 @@ static void handle_cmd(const SerialCmd_t *cmd, uint32_t now)
   case SERIAL_CMD_CONFIG_QUERY:  send_config();  break;
   case SERIAL_CMD_CONTROL_PERIOD: set_ctrl_period((uint32_t)cmd->arg0); break;
   case SERIAL_CMD_HELP:
-    send_line("B1 cycle manual | IDLE | TRACK | MANUAL | MAN 1..8 | PERIOD 1MS|2MS|5MS | RECAL | STATUS | CALDATA | CONFIG | HELP\r\n");
+    send_line("B1 manual or mstep | IDLE | TRACK | MANUAL | MODE 3 | MAN 1..8 | MS 1|2|4|8|16|32|64|128|256 | CUR irun ihold delay | MCHK | PERIOD 1MS|2MS|5MS | RECAL | STATUS | CALDATA | CONFIG | HELP\r\n");
     break;
 
   default:
@@ -387,6 +597,8 @@ static void run_control(uint32_t now)
   case MODE_MANUAL:
     ManualControl_Task(&g.manual, &g.motor);
     break;
+  case MODE_MICROSTEP:
+    break;
   default:
     enter_idle_wait();
     break;
@@ -395,6 +607,8 @@ static void run_control(uint32_t now)
 
 static void update_snapshot(uint32_t now)
 {
+  StepperTmc2209_CurrentConfig_t cur = MotorControl_GetCurrentConfig(&g.motor);
+
   g.snap.tick_ms = now;
   g.snap.mode = g.mode;
   g.snap.idle_substate = g.idle_sub;
@@ -403,6 +617,10 @@ static void update_snapshot(uint32_t now)
   g.snap.source_valid = g.ldr.frame.is_valid;
   g.snap.manual_stage_valid = ManualControl_IsStageValid(&g.manual);
   g.snap.manual_stage = ManualControl_GetStage(&g.manual);
+  g.snap.microsteps = MotorControl_GetMicrosteps(&g.motor);
+  g.snap.tmc_ihold = cur.ihold;
+  g.snap.tmc_irun = cur.irun;
+  g.snap.tmc_iholddelay = cur.iholddelay;
   g.snap.total_light = g.ldr.frame.total;
   g.snap.contrast = g.ldr.frame.contrast;
   g.snap.enc1_count = AppEncoder_GetCount(&g.enc, 0);

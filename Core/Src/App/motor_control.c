@@ -107,3 +107,69 @@ uint8_t MotorControl_GetManualStage(const MotorControl_HandleTypeDef *h)
 {
   return h->manual_stage;
 }
+
+HAL_StatusTypeDef MotorControl_SetMicrosteps(MotorControl_HandleTypeDef *h, uint16_t microsteps)
+{
+  MotorControl_StopAll(h);
+
+  HAL_StatusTypeDef s1 = StepperTmc2209_SetMicrosteps(&h->axis1, microsteps);
+  HAL_StatusTypeDef s2 = StepperTmc2209_SetMicrosteps(&h->axis2, microsteps);
+
+  if (s1 == HAL_OK && s2 == HAL_OK) return HAL_OK;
+  return HAL_ERROR;
+}
+
+uint16_t MotorControl_GetMicrosteps(const MotorControl_HandleTypeDef *h)
+{
+  return StepperTmc2209_GetMicrosteps(&h->axis1);
+}
+
+HAL_StatusTypeDef MotorControl_SetCurrentConfig(MotorControl_HandleTypeDef *h,
+    StepperTmc2209_CurrentConfig_t cfg)
+{
+  HAL_StatusTypeDef s1 = StepperTmc2209_SetCurrentConfig(&h->axis1, cfg);
+  HAL_StatusTypeDef s2 = StepperTmc2209_SetCurrentConfig(&h->axis2, cfg);
+
+  if (s1 == HAL_OK && s2 == HAL_OK) return HAL_OK;
+  return HAL_ERROR;
+}
+
+StepperTmc2209_CurrentConfig_t MotorControl_GetCurrentConfig(const MotorControl_HandleTypeDef *h)
+{
+  return StepperTmc2209_GetCurrentConfig(&h->axis1);
+}
+
+HAL_StatusTypeDef MotorControl_ReadTmcDebug(MotorControl_HandleTypeDef *h, MotorControl_TmcDebug_t *out)
+{
+  if (h == NULL || out == NULL) return HAL_ERROR;
+
+  out->axis1_ifcnt = 0;
+  out->axis2_ifcnt = 0;
+  out->axis1_gconf = 0;
+  out->axis2_gconf = 0;
+  out->axis1_ihold_irun = 0;
+  out->axis2_ihold_irun = 0;
+  out->axis1_chopconf = 0;
+  out->axis2_chopconf = 0;
+
+  out->axis1_ifcnt_status = StepperTmc2209_ReadIfcnt(&h->axis1, &out->axis1_ifcnt);
+  out->axis1_gconf_status = StepperTmc2209_ReadGconf(&h->axis1, &out->axis1_gconf);
+  out->axis1_ihold_irun_status = StepperTmc2209_ReadIholdIrun(&h->axis1, &out->axis1_ihold_irun);
+  out->axis1_chopconf_status = StepperTmc2209_ReadChopconf(&h->axis1, &out->axis1_chopconf);
+  out->axis2_ifcnt_status = StepperTmc2209_ReadIfcnt(&h->axis2, &out->axis2_ifcnt);
+  out->axis2_gconf_status = StepperTmc2209_ReadGconf(&h->axis2, &out->axis2_gconf);
+  out->axis2_ihold_irun_status = StepperTmc2209_ReadIholdIrun(&h->axis2, &out->axis2_ihold_irun);
+  out->axis2_chopconf_status = StepperTmc2209_ReadChopconf(&h->axis2, &out->axis2_chopconf);
+
+  if (out->axis1_ifcnt_status == HAL_OK &&
+      out->axis1_gconf_status == HAL_OK &&
+      out->axis1_ihold_irun_status == HAL_OK &&
+      out->axis1_chopconf_status == HAL_OK &&
+      out->axis2_ifcnt_status == HAL_OK &&
+      out->axis2_gconf_status == HAL_OK &&
+      out->axis2_ihold_irun_status == HAL_OK &&
+      out->axis2_chopconf_status == HAL_OK)
+    return HAL_OK;
+
+  return HAL_ERROR;
+}
