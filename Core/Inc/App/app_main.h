@@ -12,8 +12,6 @@ void AppMain_Init(ADC_HandleTypeDef  *hadc1,
                   UART_HandleTypeDef *huart_log,
                   TIM_HandleTypeDef  *htim_step1,
                   TIM_HandleTypeDef  *htim_step2,
-                  TIM_HandleTypeDef  *htim_enc1,
-                  TIM_HandleTypeDef  *htim_enc2,
                   UART_HandleTypeDef *huart_tmc1,
                   UART_HandleTypeDef *huart_tmc2);
 

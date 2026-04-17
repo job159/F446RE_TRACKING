@@ -2,64 +2,82 @@
 #include "App/tracking_config.h"
 #include <string.h>
 
-/* 根據誤差大小選不同的Kp：小誤差慢追,大誤差快追 */
-static float pick_kp(float abs_err)
+/* 一組軸的 PID 參數 (從 tracking_config.h 帶入) */
+typedef struct {
+  float    kp_small;
+  float    kp_medium;
+  float    kp_large;
+  float    ki;
+  float    kd;
+  float    output_gain;
+  float    pos_scale;
+  float    neg_scale;
+  uint16_t max_step_hz;
+  uint16_t rate_limit_hz;
+} AxisParams_t;
+
+static const AxisParams_t M1_PARAMS = {
+  M1_KP_SMALL, M1_KP_MEDIUM, M1_KP_LARGE,
+  M1_KI, M1_KD,
+  M1_OUTPUT_GAIN, M1_POS_SCALE, M1_NEG_SCALE,
+  M1_MAX_STEP_HZ, M1_RATE_LIMIT_HZ
+};
+
+static const AxisParams_t M2_PARAMS = {
+  M2_KP_SMALL, M2_KP_MEDIUM, M2_KP_LARGE,
+  M2_KI, M2_KD,
+  M2_OUTPUT_GAIN, M2_POS_SCALE, M2_NEG_SCALE,
+  M2_MAX_STEP_HZ, M2_RATE_LIMIT_HZ
+};
+
+/* 依誤差大小選 KP */
+static float pick_kp(const AxisParams_t *p, float abs_err)
 {
-  if (abs_err <= CTRL_ERR_SMALL)  return CTRL_KP_SMALL;
-  if (abs_err <= CTRL_ERR_MEDIUM) return CTRL_KP_MEDIUM;
-  return CTRL_KP_LARGE;
+  if (abs_err <= PID_ERR_SMALL)  return p->kp_small;
+  if (abs_err <= PID_ERR_MEDIUM) return p->kp_medium;
+  return p->kp_large;
 }
 
-/* 單軸PID計算，回傳step hz */
-static int32_t run_axis(AxisController_t *ax, float error,
-    float gain, float pos_scale, float neg_scale,
-    uint16_t max_hz, uint16_t rate_limit, uint32_t period_ms)
+/* 單軸 PID,回傳 step hz */
+static int32_t run_axis(AxisController_t *ax, const AxisParams_t *p,
+                        float error, uint32_t period_ms)
 {
   if (period_ms == 0) return 0;
 
   float dt = (float)period_ms / 1000.0f;
-  float abs_e = error;
-  if (abs_e < 0) abs_e = -abs_e;
+  float abs_e = (error < 0) ? -error : error;
 
-  /* 死區：誤差很小時不動作，讓integrator慢慢衰減 */
-  if (abs_e <= CTRL_ERR_DEADBAND)
+  /* 死區: 誤差太小直接停,並讓積分器衰減 */
+  if (abs_e <= PID_ERR_DEADBAND)
   {
-    ax->integrator *= CTRL_INTEGRATOR_DECAY;
-    ax->prev_error = error;
+    ax->integrator   *= PID_INTEGRATOR_DECAY;
+    ax->prev_error    = error;
     ax->prev_output_hz = 0;
     return 0;
   }
 
-  float kp = pick_kp(abs_e);
+  float kp    = pick_kp(p, abs_e);
   float deriv = (error - ax->prev_error) / dt;
 
-  /* 只在中小誤差範圍做積分，避免大幅overshoot */
-  if (abs_e <= CTRL_ERR_MEDIUM)
-    ax->integrator += error * CTRL_KI * dt;
+  /* 中小誤差才積分,避免 windup */
+  if (abs_e <= PID_ERR_MEDIUM)
+    ax->integrator += error * p->ki * dt;
 
-  float out = kp * error + ax->integrator + CTRL_KD * deriv;
-  out *= gain;
-
-  /* 正負方向補償(機構不對稱) */
-  if (out >= 0)
-    out *= pos_scale;
-  else
-    out *= neg_scale;
+  float out = (kp * error + ax->integrator + p->kd * deriv) * p->output_gain;
+  out *= (out >= 0) ? p->pos_scale : p->neg_scale;
 
   /* 輸出限幅 */
-  if (out > (float)max_hz) out = (float)max_hz;
-  else if (out < -(float)max_hz) out = -(float)max_hz;
+  if (out > (float)p->max_step_hz)  out =  (float)p->max_step_hz;
+  if (out < -(float)p->max_step_hz) out = -(float)p->max_step_hz;
 
   int32_t hz = (int32_t)out;
 
-  /* 限制變化速率，避免突然跳太大 */
+  /* 速率限制 */
   int32_t delta = hz - ax->prev_output_hz;
-  if (delta > (int32_t)rate_limit)
-    hz = ax->prev_output_hz + (int32_t)rate_limit;
-  else if (delta < -(int32_t)rate_limit)
-    hz = ax->prev_output_hz - (int32_t)rate_limit;
+  if (delta >  (int32_t)p->rate_limit_hz) hz = ax->prev_output_hz + (int32_t)p->rate_limit_hz;
+  if (delta < -(int32_t)p->rate_limit_hz) hz = ax->prev_output_hz - (int32_t)p->rate_limit_hz;
 
-  ax->prev_error = error;
+  ax->prev_error    = error;
   ax->prev_output_hz = hz;
   return hz;
 }
@@ -80,19 +98,8 @@ MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
   MotionCommand_t cmd = {0, 0};
   if (frame == NULL || !frame->is_valid) return cmd;
 
-  cmd.axis1_step_hz = run_axis(&h->axis1,
-      frame->error_x * CTRL_AXIS1_ERROR_SIGN,
-      CTRL_AXIS1_OUTPUT_GAIN,
-      CTRL_AXIS1_POS_SCALE, CTRL_AXIS1_NEG_SCALE,
-      CTRL_AXIS1_MAX_STEP_HZ, CTRL_AXIS1_RATE_LIMIT_STEP_HZ,
-      period_ms);
-
-  cmd.axis2_step_hz = run_axis(&h->axis2,
-      frame->error_y * CTRL_AXIS2_ERROR_SIGN,
-      CTRL_AXIS2_OUTPUT_GAIN,
-      CTRL_AXIS2_POS_SCALE, CTRL_AXIS2_NEG_SCALE,
-      CTRL_AXIS2_MAX_STEP_HZ, CTRL_AXIS2_RATE_LIMIT_STEP_HZ,
-      period_ms);
-
+  /* 乘上 M*_TRACK_DIR 可整軸翻轉追蹤方向(機構裝反時用) */
+  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&h->axis1, &M1_PARAMS, frame->error_x, period_ms);
+  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&h->axis2, &M2_PARAMS, frame->error_y, period_ms);
   return cmd;
 }

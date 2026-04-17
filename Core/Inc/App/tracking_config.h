@@ -5,70 +5,77 @@
 extern "C" {
 #endif
 
-/* ---- 系統時間參數 ---- */
-#define SYS_BOOT_CALIBRATION_MS           5000U
-#define SYS_CONTROL_PERIOD_DEFAULT_MS     1U
-#define SYS_TELEMETRY_PERIOD_MS           100U
+/* =========================================================================
+ *  系統
+ * ========================================================================= */
+#define SYS_BOOT_CALIBRATION_MS      5000U   /* 開機校正時間 */
+#define SYS_CONTROL_PERIOD_MS        5U      /* PID 週期,可用 1/2/5 */
+#define SYS_TELEMETRY_PERIOD_MS      100U    /* 遙測輸出週期 */
 
-/* ---- ADC低通濾波 (千分比) ---- */
-#define ADC_LPF_OLD_WEIGHT                100U    /* 舊值權重 */
-#define ADC_LPF_NEW_WEIGHT                900U    /* 新值權重 */
-#define ADC_LPF_SCALE                     1000U   /* 總比例 */
+/* =========================================================================
+ *  ADC
+ * ========================================================================= */
+#define ADC_12BIT_MAX                4095U
+#define ADC_INVERT                   1       /* 硬體分壓反向時設 1 (亮→值低) */
+#define ADC_LPF_ALPHA_NEW            9       /* 低通: new*9 + old*1,除以 10 */
 
-/* ---- ADC硬體參數 ---- */
-#define ADC_12BIT_MAX                     4095U
+/* =========================================================================
+ *  LDR 追蹤判定
+ * ========================================================================= */
+#define LDR_CHANNEL_COUNT            4U
+#define LDR_BASELINE_MARGIN          10U     /* 校正後 noise floor 額外裕度 */
+#define LDR_MIN_NOISE_FLOOR          6U
+#define TRACK_VALID_TOTAL_MIN        140U    /* 4 路 delta 加總最小值 */
+#define TRACK_DIRECTION_CONTRAST_MIN 28U     /* 最亮-最暗差,小於不追蹤 */
 
-/* ---- LDR校正 ---- */
-#define LDR_CHANNEL_COUNT                 4U
-#define LDR_BASELINE_MARGIN               10U
-#define LDR_MIN_NOISE_FLOOR               6U
+/* =========================================================================
+ *  PID - 共用
+ * ========================================================================= */
+#define PID_ERR_DEADBAND             0.015f  /* 誤差小於此值完全不動 */
+#define PID_ERR_SMALL                0.055f  /* 切到 KP_SMALL 的門檻 */
+#define PID_ERR_MEDIUM               0.140f  /* 切到 KP_MEDIUM 的門檻 */
+#define PID_INTEGRATOR_DECAY         0.8f    /* 死區內積分器衰減 */
 
-/* ---- 追蹤判定門檻 ---- */
-#define TRACK_VALID_TOTAL_MIN             140U
-#define TRACK_DIRECTION_CONTRAST_MIN      28U
+/* =========================================================================
+ *  追蹤方向翻轉(只影響 TRACKING 模式,manual 不受影響)
+ *  機構裝反、或想整體調轉時,把對應軸改成 -1 即可
+ * ========================================================================= */
+#define M1_TRACK_DIR                 (+1)    /* Motor1 (水平軸): +1 正常, -1 反向 */
+#define M2_TRACK_DIR                 (+1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
 
-/* ---- PID參數 ---- */
-#define CTRL_INTEGRATOR_DECAY             0.8f    /* 死區內積分器衰減比例 */
-#define CTRL_ERR_DEADBAND                 0.015f
-#define CTRL_ERR_SMALL                    0.055f
-#define CTRL_ERR_MEDIUM                   0.140f
-#define CTRL_KP_SMALL                     180.0f
-#define CTRL_KP_MEDIUM                    360.0f
-#define CTRL_KP_LARGE                     620.0f
-#define CTRL_KI                           8.0f
-#define CTRL_KD                           18.0f
+/* =========================================================================
+ *  PID - Motor1 (緩和版,大約 Motor2 的一半)
+ * ========================================================================= */
+#define M1_KP_SMALL                  90.0f
+#define M1_KP_MEDIUM                 180.0f
+#define M1_KP_LARGE                  310.0f
+#define M1_KI                        4.0f
+#define M1_KD                        9.0f
+#define M1_OUTPUT_GAIN               1.0f
+#define M1_POS_SCALE                 1.10f
+#define M1_NEG_SCALE                 1.24f
+#define M1_MAX_STEP_HZ               60000U
+#define M1_RATE_LIMIT_HZ             8000U   /* 緩和:降低單次變化量 */
 
-/* ---- 軸輸出增益與限制 ---- */
-#define CTRL_AXIS1_OUTPUT_GAIN            2.0f
-#define CTRL_AXIS2_OUTPUT_GAIN            2.0f
-#define CTRL_AXIS1_MAX_STEP_HZ            60000U
-#define CTRL_AXIS2_MAX_STEP_HZ            60000U
-#define CTRL_AXIS1_RATE_LIMIT_STEP_HZ     16250U
-#define CTRL_AXIS2_RATE_LIMIT_STEP_HZ     13750U
+/* =========================================================================
+ *  PID - Motor2 (原本數值)
+ * ========================================================================= */
+#define M2_KP_SMALL                  180.0f
+#define M2_KP_MEDIUM                 360.0f
+#define M2_KP_LARGE                  620.0f
+#define M2_KI                        8.0f
+#define M2_KD                        18.0f
+#define M2_OUTPUT_GAIN               2.0f
+#define M2_POS_SCALE                 1.02f
+#define M2_NEG_SCALE                 1.16f
+#define M2_MAX_STEP_HZ               60000U
+#define M2_RATE_LIMIT_HZ             13750U
 
-/* ---- 軸方向補償 ---- */
-#define CTRL_AXIS1_POS_SCALE              1.10f
-#define CTRL_AXIS1_NEG_SCALE              1.24f
-#define CTRL_AXIS2_POS_SCALE              1.02f
-#define CTRL_AXIS2_NEG_SCALE              1.16f
-#define CTRL_AXIS1_ERROR_SIGN             1.0f
-#define CTRL_AXIS2_ERROR_SIGN             1.0f
-
-/* ---- 搜尋策略 ---- */
-#define SEARCH_HISTORY_LEN                16U
-#define SEARCH_BIAS_STEP_HZ               900U
-#define SEARCH_BIAS_HOLD_MS               100U
-#define SEARCH_HISTORY_BIAS_CYCLES        6U
-#define SEARCH_REVISIT_STEP_HZ            650U
-#define SEARCH_REVISIT_MAX_MS             1000U
-#define SEARCH_REVISIT_TOL_COUNTS         80
-#define SEARCH_SWEEP_STEP_HZ              750U
-#define SEARCH_SWEEP_Y_STEP_HZ            420U
-#define SEARCH_SWEEP_HOLD_MS              120U
-
-/* ---- 串口指令 ---- */
-#define SERIAL_CMD_RX_LINE_MAX            32U
-#define SERIAL_CMD_QUEUE_LENGTH           4U
+/* =========================================================================
+ *  串口
+ * ========================================================================= */
+#define SERIAL_CMD_RX_LINE_MAX       32U
+#define SERIAL_CMD_QUEUE_LENGTH      4U
 
 #ifdef __cplusplus
 }

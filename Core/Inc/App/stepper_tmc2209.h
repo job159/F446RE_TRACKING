@@ -7,8 +7,9 @@ extern "C" {
 
 #include "main.h"
 
-#define TMC_SPEED_STAGE_COUNT   8U
-#define TMC_DIR_SPLIT_STAGE     (TMC_SPEED_STAGE_COUNT / 2U)  /* 前4格正轉,後4格反轉 */
+/* 14 段速度: 前 7 格正轉 (F1~F7), 後 7 格反轉 (R1~R7) */
+#define TMC_SPEED_STAGE_COUNT   14U
+#define TMC_DIR_SPLIT_STAGE     7U
 
 typedef struct {
   TIM_HandleTypeDef  *htim_step;
@@ -37,8 +38,6 @@ HAL_StatusTypeDef StepperTmc2209_Init(
 HAL_StatusTypeDef StepperTmc2209_SetSpeedStage(StepperTmc2209_HandleTypeDef *h, uint8_t stage);
 HAL_StatusTypeDef StepperTmc2209_Stop(StepperTmc2209_HandleTypeDef *h);
 HAL_StatusTypeDef StepperTmc2209_SetSignedHz(StepperTmc2209_HandleTypeDef *h, int32_t signed_hz);
-
-uint8_t StepperTmc2209_GetSpeedStage(const StepperTmc2209_HandleTypeDef *h);
 
 #ifdef __cplusplus
 }

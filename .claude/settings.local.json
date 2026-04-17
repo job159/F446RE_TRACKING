@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Core/Src/App/\"*.c \"C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Core/Inc/App/\"*.h)",
+      "Bash(ls *.ioc)",
+      "Bash(wc -l new_docs/*.md)"
+    ]
+  }
+}
