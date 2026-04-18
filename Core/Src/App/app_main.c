@@ -268,11 +268,11 @@ static void handle_cmd(const SerialCmd_t *cmd, uint32_t now)
     send("POS HOMED\r\n");
     break;
   case SERIAL_CMD_POS_QUERY: {
-    char buf[96];
-    snprintf(buf, sizeof(buf), "POS axis1:%ld axis2:%ld limit:%ld\r\n",
-        (long)MotorControl_GetAxis1Steps(&g.motor),
-        (long)MotorControl_GetAxis2Steps(&g.motor),
-        (long)M1_LIMIT_STEPS);
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+        "POS axis1:%ld/%ld axis2:%ld/%ld\r\n",
+        (long)MotorControl_GetAxis1Steps(&g.motor), (long)M1_LIMIT_STEPS,
+        (long)MotorControl_GetAxis2Steps(&g.motor), (long)M2_LIMIT_STEPS);
     send(buf);
     break;
   }

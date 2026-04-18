@@ -73,10 +73,14 @@ HAL_StatusTypeDef MotorControl_ApplyCommand(MotorControl_HandleTypeDef *h,
   int32_t hz1 = cmd->axis1_step_hz;
   int32_t hz2 = cmd->axis2_step_hz;
 
-  /* Axis1 軟限位:位置到頂時擋掉往外衝的方向 */
+  /* 軟限位:位置到頂時擋掉往外衝的方向(反方向仍可回) */
 #if M1_LIMIT_ENABLE
   if (h->axis1_position_steps >=  (int32_t)M1_LIMIT_STEPS && hz1 > 0) hz1 = 0;
   if (h->axis1_position_steps <= -(int32_t)M1_LIMIT_STEPS && hz1 < 0) hz1 = 0;
+#endif
+#if M2_LIMIT_ENABLE
+  if (h->axis2_position_steps >=  (int32_t)M2_LIMIT_STEPS && hz2 > 0) hz2 = 0;
+  if (h->axis2_position_steps <= -(int32_t)M2_LIMIT_STEPS && hz2 < 0) hz2 = 0;
 #endif
 
   HAL_StatusTypeDef s1 = StepperTmc2209_SetSignedHz(&h->axis1, hz1);
