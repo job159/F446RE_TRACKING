@@ -86,9 +86,12 @@ MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
   float ey = saturate_err(frame->error_y);
 
   /* 乘上 M*_TRACK_DIR 可整軸翻轉追蹤方向(機構裝反時用)
-   * 兩軸獨立,同時依各自誤差輸出 hz,不做 dominance 抑制。 */
-  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&M1_PARAMS, ex);
-  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&M2_PARAMS, ey);
+   * 兩軸獨立,同時依各自誤差輸出 hz,不做 dominance 抑制。
+   *
+   * [軸對調] 硬體上 M1 裝在垂直(上下)、M2 裝在水平(左右),
+   *          所以 error_y 驅動 axis1,error_x 驅動 axis2。 */
+  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&M1_PARAMS, ey);
+  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&M2_PARAMS, ex);
   cmd.error_x = ex;
   cmd.error_y = ey;
   return cmd;
