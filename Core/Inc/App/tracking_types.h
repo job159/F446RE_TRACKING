@@ -57,10 +57,14 @@ typedef struct {
   uint8_t  calibration_done;
 } LdrTrackingFrame_t;
 
-/* 雙軸運動指令 */
+/* 雙軸運動指令
+ * error_x/y 由 tracker 填,ApplyCommand 用它來判斷軸分離(dominance)。
+ * manual 模式不經過 ApplyCommand,欄位留 0 即可。 */
 typedef struct {
   int32_t axis1_step_hz;
   int32_t axis2_step_hz;
+  float   error_x;
+  float   error_y;
 } MotionCommand_t;
 
 /* 遙測快照 */
