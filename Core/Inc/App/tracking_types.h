@@ -32,7 +32,9 @@ typedef enum {
   SERIAL_CMD_CAL_QUERY,
   SERIAL_CMD_CONFIG_QUERY,
   SERIAL_CMD_CONTROL_PERIOD,
-  SERIAL_CMD_HELP
+  SERIAL_CMD_HELP,
+  SERIAL_CMD_HOME,          /* 位置歸零(機構在中間時呼叫) */
+  SERIAL_CMD_POS_QUERY      /* 查兩軸位置 step 數 */
 } SerialCmdId_t;
 
 typedef struct {

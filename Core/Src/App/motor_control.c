@@ -1,4 +1,5 @@
 #include "App/motor_control.h"
+#include "App/tracking_config.h"
 
 /* =========================================================================
  *  Manual 速度表 (兩邊各 7 段,共 14 段)
@@ -40,6 +41,8 @@ HAL_StatusTypeDef MotorControl_Init(
   h->last_cmd.axis2_step_hz = 0;
   h->manual_stage = 0;
   h->manual_stage_valid = 0;
+  h->axis1_position_steps = 0;   /* 開機假設機構在中間 */
+  h->axis2_position_steps = 0;
 
   HAL_StatusTypeDef s1 = StepperTmc2209_Init(&h->axis1,
       htim1, TIM_CHANNEL_1, huart1,
@@ -63,16 +66,62 @@ void MotorControl_StopAll(MotorControl_HandleTypeDef *h)
   h->last_cmd.axis2_step_hz = 0;
 }
 
-HAL_StatusTypeDef MotorControl_ApplyCommand(MotorControl_HandleTypeDef *h, const MotionCommand_t *cmd)
+HAL_StatusTypeDef MotorControl_ApplyCommand(MotorControl_HandleTypeDef *h,
+                                            const MotionCommand_t *cmd,
+                                            uint32_t dt_ms)
 {
-  HAL_StatusTypeDef s1 = StepperTmc2209_SetSignedHz(&h->axis1, cmd->axis1_step_hz);
-  HAL_StatusTypeDef s2 = StepperTmc2209_SetSignedHz(&h->axis2, cmd->axis2_step_hz);
+  int32_t hz1 = cmd->axis1_step_hz;
+  int32_t hz2 = cmd->axis2_step_hz;
+
+  /* Axis1 軟限位:位置到頂時擋掉往外衝的方向 */
+#if M1_LIMIT_ENABLE
+  if (h->axis1_position_steps >=  (int32_t)M1_LIMIT_STEPS && hz1 > 0) hz1 = 0;
+  if (h->axis1_position_steps <= -(int32_t)M1_LIMIT_STEPS && hz1 < 0) hz1 = 0;
+#endif
+
+  HAL_StatusTypeDef s1 = StepperTmc2209_SetSignedHz(&h->axis1, hz1);
+  HAL_StatusTypeDef s2 = StepperTmc2209_SetSignedHz(&h->axis2, hz2);
+
+  /* 用實際被執行的 hz 累加位置估算 (clamp 後的值才算) */
+  if (dt_ms > 0)
+  {
+    float dt = (float)dt_ms * 0.001f;
+    h->axis1_position_steps += (int32_t)((float)hz1 * dt);
+    h->axis2_position_steps += (int32_t)((float)hz2 * dt);
+  }
+
   if (s1 == HAL_OK && s2 == HAL_OK)
   {
-    h->last_cmd = *cmd;
+    h->last_cmd.axis1_step_hz = hz1;
+    h->last_cmd.axis2_step_hz = hz2;
     return HAL_OK;
   }
   return HAL_ERROR;
+}
+
+void MotorControl_HomePosition(MotorControl_HandleTypeDef *h)
+{
+  h->axis1_position_steps = 0;
+  h->axis2_position_steps = 0;
+}
+
+int32_t MotorControl_GetAxis1Steps(const MotorControl_HandleTypeDef *h)
+{
+  return h->axis1_position_steps;
+}
+
+int32_t MotorControl_GetAxis2Steps(const MotorControl_HandleTypeDef *h)
+{
+  return h->axis2_position_steps;
+}
+
+void MotorControl_AdvancePosition(MotorControl_HandleTypeDef *h, uint32_t dt_ms)
+{
+  /* Manual 模式下 TIM 持續以 last_cmd.hz 發 step,用這個估算位置 */
+  if (dt_ms == 0) return;
+  float dt = (float)dt_ms * 0.001f;
+  h->axis1_position_steps += (int32_t)((float)h->last_cmd.axis1_step_hz * dt);
+  h->axis2_position_steps += (int32_t)((float)h->last_cmd.axis2_step_hz * dt);
 }
 
 HAL_StatusTypeDef MotorControl_SetManualStage(MotorControl_HandleTypeDef *h, uint8_t stage)

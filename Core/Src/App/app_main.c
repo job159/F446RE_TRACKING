@@ -263,9 +263,22 @@ static void handle_cmd(const SerialCmd_t *cmd, uint32_t now)
   case SERIAL_CMD_CAL_QUERY:     send_caldata(); break;
   case SERIAL_CMD_CONFIG_QUERY:  send_config();  break;
   case SERIAL_CMD_CONTROL_PERIOD: set_ctrl_period((uint32_t)cmd->arg0); break;
+  case SERIAL_CMD_HOME:
+    MotorControl_HomePosition(&g.motor);
+    send("POS HOMED\r\n");
+    break;
+  case SERIAL_CMD_POS_QUERY: {
+    char buf[96];
+    snprintf(buf, sizeof(buf), "POS axis1:%ld axis2:%ld limit:%ld\r\n",
+        (long)MotorControl_GetAxis1Steps(&g.motor),
+        (long)MotorControl_GetAxis2Steps(&g.motor),
+        (long)M1_LIMIT_STEPS);
+    send(buf);
+    break;
+  }
   case SERIAL_CMD_HELP:
     send("CMD: IDLE | TRACK | MANUAL | F1..F7 | R1..R7 | MAN 1..14 | "
-         "PERIOD 1|2|5 | RECAL | STATUS | CAL? | CFG? | HELP\r\n");
+         "PERIOD 1|2|5 | RECAL | STATUS | CAL? | CFG? | HOME | POS? | HELP\r\n");
     break;
   default: break;
   }
@@ -303,12 +316,14 @@ static void run_control(uint32_t now)
     else
     {
       MotionCommand_t cmd = TrackerController_Run(&g.tracker, &g.ldr.frame, g.ctrl_period_ms);
-      MotorControl_ApplyCommand(&g.motor, &cmd);
+      MotorControl_ApplyCommand(&g.motor, &cmd, g.ctrl_period_ms);
     }
     break;
 
   case MODE_MANUAL:
     ManualControl_Task(&g.manual, &g.motor);
+    /* manual 模式位置會持續累積(不 clamp),供日後 tracking 守限位用 */
+    MotorControl_AdvancePosition(&g.motor, g.ctrl_period_ms);
     break;
 
   default:

@@ -74,7 +74,17 @@ MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
   if (frame == NULL || !frame->is_valid) return cmd;
 
   /* 乘上 M*_TRACK_DIR 可整軸翻轉追蹤方向(機構裝反時用) */
-  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&M1_PARAMS, frame->error_x);
-  cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&M2_PARAMS, frame->error_y);
+  int32_t hz1 = M1_TRACK_DIR * run_axis(&M1_PARAMS, frame->error_x);
+  int32_t hz2 = M2_TRACK_DIR * run_axis(&M2_PARAMS, frame->error_y);
+
+  /* 軸分離:誤差大的那軸主宰,另一軸先停。兩軸相近時才並行。
+   * 避免「X 想動結果 Y 跟著動」的互擾感。門檻 AXIS_DOMINANT_RATIO 可調。 */
+  float abs_x = (frame->error_x < 0) ? -frame->error_x : frame->error_x;
+  float abs_y = (frame->error_y < 0) ? -frame->error_y : frame->error_y;
+  if      (abs_x >= AXIS_DOMINANT_RATIO * abs_y) hz2 = 0;
+  else if (abs_y >= AXIS_DOMINANT_RATIO * abs_x) hz1 = 0;
+
+  cmd.axis1_step_hz = hz1;
+  cmd.axis2_step_hz = hz2;
   return cmd;
 }

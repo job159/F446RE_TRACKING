@@ -91,6 +91,8 @@ static void parse_line(SerialCmd_HandleTypeDef *h, const uint8_t *line, uint8_t 
   if (!strcmp(txt, "CAL?"))   { enqueue(h, SERIAL_CMD_CAL_QUERY,     0); return; }
   if (!strcmp(txt, "CFG?"))   { enqueue(h, SERIAL_CMD_CONFIG_QUERY,  0); return; }
   if (!strcmp(txt, "HELP"))   { enqueue(h, SERIAL_CMD_HELP,          0); return; }
+  if (!strcmp(txt, "HOME"))   { enqueue(h, SERIAL_CMD_HOME,          0); return; }
+  if (!strcmp(txt, "POS?"))   { enqueue(h, SERIAL_CMD_POS_QUERY,     0); return; }
 
   /* ----- 控制週期: "PERIOD 5" -> 5ms ----- */
   if (!strncmp(txt, "PERIOD ", 7))
