@@ -45,8 +45,18 @@ static void recompute(LdrTracking_HandleTypeDef *h)
     uint32_t top   = (uint32_t)h->frame.delta[0] + h->frame.delta[1];
     uint32_t bot   = (uint32_t)h->frame.delta[3] + h->frame.delta[2];
 
-    h->frame.error_x = (float)((int32_t)right - (int32_t)left) / (float)total;
-    h->frame.error_y = (float)((int32_t)top - (int32_t)bot) / (float)total;
+    /* 一邊對子全黑一邊亮 → error 假性飽和到 ±1.0,會讓對應軸來回抖。
+     * 出現這種狀況時該軸 error 直接設 0 (該軸本 frame 停)。 */
+    if (left > 0 && right > 0)
+      h->frame.error_x = (float)((int32_t)right - (int32_t)left) / (float)total;
+    else
+      h->frame.error_x = 0.0f;
+
+    if (top > 0 && bot > 0)
+      h->frame.error_y = (float)((int32_t)top - (int32_t)bot) / (float)total;
+    else
+      h->frame.error_y = 0.0f;
+
     h->frame.is_valid = 1;
   }
   else
