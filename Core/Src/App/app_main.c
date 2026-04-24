@@ -317,8 +317,13 @@ static void run_control(uint32_t now)
     {
       MotionCommand_t cmd = TrackerController_Run(&g.tracker, &g.ldr.frame, g.ctrl_period_ms);
 #if M2_FLIP_WHEN_M1_POSITIVE
-      if (MotorControl_GetAxis1Steps(&g.motor) > M2_FLIP_M1_THRESHOLD_STEPS)
-        cmd.axis2_step_hz = -cmd.axis2_step_hz;
+      {
+        static uint8_t m2_flipped = 0;
+        int32_t m1_pos = MotorControl_GetAxis1Steps(&g.motor);
+        if      (m1_pos > M2_FLIP_M1_ON_STEPS)  m2_flipped = 1;
+        else if (m1_pos < M2_FLIP_M1_OFF_STEPS) m2_flipped = 0;
+        if (m2_flipped) cmd.axis2_step_hz = -cmd.axis2_step_hz;
+      }
 #endif
       MotorControl_ApplyCommand(&g.motor, &cmd, g.ctrl_period_ms);
     }

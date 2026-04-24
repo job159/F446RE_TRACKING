@@ -51,13 +51,16 @@ extern "C" {
  *  機構裝反、或想整體調轉時,把對應軸改成 -1 即可
  * ========================================================================= */
 #define M1_TRACK_DIR                 (+1)    /* Motor1 (水平軸): +1 正常, -1 反向 */
-#define M2_TRACK_DIR                 (+1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
+#define M2_TRACK_DIR                 (-1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
 
 /* M1 過 HOME 正側時,LDR 相對 M2 的左右關係翻面,M2 輸出要反向。
- * 以 axis1_position_steps > M2_FLIP_M1_THRESHOLD_STEPS 為界,
- * 給個 100 step 的死區避免在零點附近抖動切換。 */
+ * 用 hysteresis 避免在臨界點切換抖動:
+ *   axis1 > ON  才開始翻
+ *   axis1 < OFF 才取消翻
+ * 中間 (OFF, ON) 這段保留目前狀態不切換 */
 #define M2_FLIP_WHEN_M1_POSITIVE     1       /* 1=啟用, 0=停用 */
-#define M2_FLIP_M1_THRESHOLD_STEPS   100     /* M1 位置超過幾步才翻 M2 */
+#define M2_FLIP_M1_ON_STEPS          150     /* 超過此值開始翻 */
+#define M2_FLIP_M1_OFF_STEPS         50      /* 低於此值取消翻 */
 
 /* =========================================================================
  *  軟限位(Motor1 + Motor2)
