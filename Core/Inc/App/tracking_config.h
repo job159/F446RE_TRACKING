@@ -78,7 +78,7 @@ extern "C" {
  *    1. 開機或送 HOME 指令時,機構實際在「中間位置」(位置歸零)
  *    2. manual 模式也會累加位置,若 manual 突破限位,tracking 回來會被擋住
  * ========================================================================= */
-#define M1_LIMIT_ENABLE              1       /* 1=啟用, 0=停用 */
+#define M1_LIMIT_ENABLE              0       /* 1=啟用, 0=停用 */
 #define M1_LIMIT_STEPS               800     /* ±step (= ±45°機構) */
 #define M2_LIMIT_ENABLE              1       /* 1=啟用, 0=停用 */
 #define M2_LIMIT_STEPS               9600    /* ±step (= ±180°機構,1:3 齒輪比) */
