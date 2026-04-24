@@ -94,7 +94,12 @@ MotionCommand_t TrackerController_Run(TrackerController_HandleTypeDef *h,
    *
    * [軸對調] 硬體上 M1 裝在垂直(上下)、M2 裝在水平(左右),
    *          所以 error_y 驅動 axis1,error_x 驅動 axis2。 */
-  cmd.axis1_step_hz = M1_TRACK_DIR * run_axis(&M1_PARAMS, ey);
+  /* M1 改用 bang-bang:超過死區就固定速度,否則停。單純、不會抖。 */
+  int32_t m1_hz;
+  if      (ey >  M1_ERR_DEADBAND) m1_hz =  M1_BANGBANG_HZ;
+  else if (ey < -M1_ERR_DEADBAND) m1_hz = -M1_BANGBANG_HZ;
+  else                            m1_hz = 0;
+  cmd.axis1_step_hz = M1_TRACK_DIR * m1_hz;
   cmd.axis2_step_hz = M2_TRACK_DIR * run_axis(&M2_PARAMS, ex);
   cmd.error_x = ex;
   cmd.error_y = ey;

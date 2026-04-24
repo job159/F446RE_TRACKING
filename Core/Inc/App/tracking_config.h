@@ -44,6 +44,11 @@ extern "C" {
  * M1 用 M1_ERR_DEADBAND,M2 用 PID_ERR_DEADBAND */
 #define M1_ERR_DEADBAND              0.060f  /* M1 專用:比共用值大,壓小誤差震盪 */
 
+/* M1 bang-bang 控制:不用 PID,超過死區就用固定速度轉,回到死區就停。
+ * 沒有 KP 跳階、沒有 pos/neg scale、沒有大 error 飽和反撲 → 不會來回抖。
+ * 固定速度 hz 可依機構調:太慢追不上太陽,太快會衝過死區回盪 */
+#define M1_BANGBANG_HZ               400     /* M1 固定轉速 (正負共用) */
+
 /* 陰影防呆:|error| 上限。
  * 當某側 LDR 完全在陰影時 delta=0,另一側爆亮,error 會飆到 ±1.0,
  * 造成馬達全速衝向「其實只是陰影邊緣」的方向。
