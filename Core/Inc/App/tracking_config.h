@@ -53,6 +53,12 @@ extern "C" {
 #define M1_TRACK_DIR                 (+1)    /* Motor1 (水平軸): +1 正常, -1 反向 */
 #define M2_TRACK_DIR                 (+1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
 
+/* M1 過 HOME 正側時,LDR 相對 M2 的左右關係翻面,M2 輸出要反向。
+ * 以 axis1_position_steps > M2_FLIP_M1_THRESHOLD_STEPS 為界,
+ * 給個 100 step 的死區避免在零點附近抖動切換。 */
+#define M2_FLIP_WHEN_M1_POSITIVE     1       /* 1=啟用, 0=停用 */
+#define M2_FLIP_M1_THRESHOLD_STEPS   100     /* M1 位置超過幾步才翻 M2 */
+
 /* =========================================================================
  *  軟限位(Motor1 + Motor2)
  *  用 hz × dt 累加估算位置,超界時該方向 hz 自動 clamp 為 0。
@@ -87,7 +93,7 @@ extern "C" {
  * ========================================================================= */
 #define M1_KP_SMALL                  100.0f  /* 由 180.0f 降到 100.0f */
 #define M1_KP_MEDIUM                 400.0f  /* 由 950.0f 降到 400.0f */
-#define M1_KP_LARGE                  800.0f  /* 由 1800.0f 降到 800.0f */
+#define M1_KP_LARGE                  1600.0f /* 大 error 反應加倍 (800 → 1600) */
 #define M1_OUTPUT_GAIN               1.0f    /* 由 2.0f 降到 1.0f */
 #define M1_POS_SCALE                 1.10f   /* 未動 */
 #define M1_NEG_SCALE                 1.24f   /* 未動 */
@@ -100,7 +106,7 @@ extern "C" {
  * ========================================================================= */
 #define M2_KP_SMALL                  60.0f   /* 由 90.0f 降到 60.0f */
 #define M2_KP_MEDIUM                 280.0f  /* 由 480.0f 降到 280.0f */
-#define M2_KP_LARGE                  560.0f  /* 由 900.0f 降到 560.0f */
+#define M2_KP_LARGE                  1120.0f /* 大 error 反應加倍 (560 → 1120) */
 #define M2_OUTPUT_GAIN               1.0f    /* 由 2.0f 降到 1.0f */
 #define M2_POS_SCALE                 1.02f   /* 未動 */
 #define M2_NEG_SCALE                 1.16f   /* 未動 */

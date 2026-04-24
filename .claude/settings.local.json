@@ -6,7 +6,28 @@
       "Bash(wc -l new_docs/*.md)",
       "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/STM32F4xx_HAL_Driver/Inc/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/STM32F4xx_HAL_Driver/Inc/)",
       "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/Device/ST/STM32F4xx/Include/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/CMSIS/Device/ST/STM32F4xx/Include/)",
-      "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/Include/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/CMSIS/Include/)"
+      "Bash(cp -r 'C:/Users/a2105/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/Include/*' C:/Users/a2105/STM32CubeIDE/workspace_1.14.1/F446RE_TRACKING/Drivers/CMSIS/Include/)",
+      "Bash(npm install *)",
+      "Bash(node gen_report.js)",
+      "Bash(python \"C:\\\\Users\\\\a2105\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\69898a59-acd0-4d3b-891d-c9b4a069e89a\\\\72b88ff7-5cdb-4f4e-aafe-1f52ca7c9681\\\\skills\\\\docx\\\\scripts\\\\office\\\\validate.py\" \"C:\\\\Users\\\\a2105\\\\STM32CubeIDE\\\\workspace_1.14.1\\\\F446RE_TRACKING\\\\docs\\\\F446RE_TRACKING_Report.docx\")",
+      "Bash(python -c \"import zipfile; z=zipfile.ZipFile\\('F446RE_TRACKING_Report.docx'\\); print\\('Entries:', len\\(z.namelist\\(\\)\\)\\); print\\('Has document.xml:', 'word/document.xml' in z.namelist\\(\\)\\); print\\('Size of document.xml:', z.getinfo\\('word/document.xml'\\).file_size\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import zipfile, xml.etree.ElementTree as ET; z=zipfile.ZipFile\\('F446RE_TRACKING_Report.docx'\\); ET.fromstring\\(z.read\\('word/document.xml'\\)\\); print\\('XML OK, size:', z.getinfo\\('word/document.xml'\\).file_size\\)\")",
+      "Bash(python -c \"import zipfile, xml.etree.ElementTree as ET; z=zipfile.ZipFile\\('F446RE_TRACKING_Paper.docx'\\); ET.fromstring\\(z.read\\('word/document.xml'\\)\\); print\\('XML OK, size:', z.getinfo\\('word/document.xml'\\).file_size\\)\")",
+      "Bash(python -c \"import zipfile, xml.etree.ElementTree as ET; z=zipfile.ZipFile\\('F446RE_TRACKING_Paper_v2.docx'\\); ET.fromstring\\(z.read\\('word/document.xml'\\)\\); print\\('XML OK, size:', z.getinfo\\('word/document.xml'\\).file_size\\)\")",
+      "Bash(python -c \"import zipfile, xml.etree.ElementTree as ET; z=zipfile.ZipFile\\('F446RE_TRACKING_Paper_v3.docx'\\); ET.fromstring\\(z.read\\('word/document.xml'\\)\\); print\\('XML OK, size:', z.getinfo\\('word/document.xml'\\).file_size\\)\")",
+      "Bash(pandoc \"C:\\\\code\\\\F446RE_TRACKING_Paper_copy.docx\" -o \"C:\\\\code\\\\F446RE_TRACKING_Paper_copy.md\")",
+      "Bash(python \"C:\\\\Users\\\\a2105\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\69898a59-acd0-4d3b-891d-c9b4a069e89a\\\\72b88ff7-5cdb-4f4e-aafe-1f52ca7c9681\\\\skills\\\\docx\\\\scripts\\\\office\\\\unpack.py\" \"C:\\\\code\\\\F446RE_TRACKING_Paper_copy.docx\" \"C:\\\\code\\\\paper_unpack\")",
+      "Bash(pip install *)",
+      "Bash(python three_line.py)",
+      "Bash(python)",
+      "Bash(python -c \"import xml.etree.ElementTree as ET; ET.parse\\(r'C:\\\\code\\\\paper_unpack\\\\word\\\\document.xml'\\); print\\('XML OK'\\)\")",
+      "Bash(python \"C:\\\\Users\\\\a2105\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\69898a59-acd0-4d3b-891d-c9b4a069e89a\\\\72b88ff7-5cdb-4f4e-aafe-1f52ca7c9681\\\\skills\\\\docx\\\\scripts\\\\office\\\\pack.py\" \"C:\\\\code\\\\paper_unpack\" \"C:\\\\code\\\\F446RE_TRACKING_Paper_polished.docx\" --original \"C:\\\\code\\\\F446RE_TRACKING_Paper_copy.docx\" --validate false)",
+      "Bash(python \"C:\\\\Users\\\\a2105\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\69898a59-acd0-4d3b-891d-c9b4a069e89a\\\\72b88ff7-5cdb-4f4e-aafe-1f52ca7c9681\\\\skills\\\\docx\\\\scripts\\\\office\\\\unpack.py\" \"C:\\\\code\\\\雙軸太陽追蹤系統paper.docx\" \"C:\\\\code\\\\new_paper_unpack\")",
+      "Bash(python -c \"import xml.etree.ElementTree as ET; ET.parse\\(r'C:\\\\code\\\\new_paper_unpack\\\\word\\\\document.xml'\\); print\\('XML OK'\\)\")",
+      "WebSearch",
+      "WebFetch(domain:hackaday.com)",
+      "WebFetch(domain:ieeexplore.ieee.org)"
     ]
   }
 }

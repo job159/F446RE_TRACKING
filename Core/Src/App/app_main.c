@@ -316,6 +316,10 @@ static void run_control(uint32_t now)
     else
     {
       MotionCommand_t cmd = TrackerController_Run(&g.tracker, &g.ldr.frame, g.ctrl_period_ms);
+#if M2_FLIP_WHEN_M1_POSITIVE
+      if (MotorControl_GetAxis1Steps(&g.motor) > M2_FLIP_M1_THRESHOLD_STEPS)
+        cmd.axis2_step_hz = -cmd.axis2_step_hz;
+#endif
       MotorControl_ApplyCommand(&g.motor, &cmd, g.ctrl_period_ms);
     }
     break;
