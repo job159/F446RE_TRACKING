@@ -36,9 +36,13 @@ extern "C" {
  *    - 死區縮小:對小誤差更敏感,才抓得到微弱偏移
  *    - 三段門檻拉回靠近中心:小位移也會觸發,但配合較小 KP → 動得慢而穩
  * ========================================================================= */
-#define PID_ERR_DEADBAND             0.020f  /* 由 0.050 降到 0.020,提高靈敏度 */
+#define PID_ERR_DEADBAND             0.020f  /* 由 0.050 降到 0.020,提高靈敏度 (M2 用) */
 #define PID_ERR_SMALL                0.060f  /* 由 0.100 降到 0.060 */
 #define PID_ERR_MEDIUM               0.150f  /* 由 0.250 降到 0.150 */
+
+/* 個別軸死區:M1 要比 M2 大,消除 error_y 在零點附近噪訊造成的來回抖。
+ * M1 用 M1_ERR_DEADBAND,M2 用 PID_ERR_DEADBAND */
+#define M1_ERR_DEADBAND              0.060f  /* M1 專用:比共用值大,壓小誤差震盪 */
 
 /* 陰影防呆:|error| 上限。
  * 當某側 LDR 完全在陰影時 delta=0,另一側爆亮,error 會飆到 ±1.0,
@@ -50,7 +54,7 @@ extern "C" {
  *  追蹤方向翻轉(只影響 TRACKING 模式,manual 不受影響)
  *  機構裝反、或想整體調轉時,把對應軸改成 -1 即可
  * ========================================================================= */
-#define M1_TRACK_DIR                 (+1)    /* Motor1 (水平軸): +1 正常, -1 反向 */
+#define M1_TRACK_DIR                 (-1)    /* Motor1 (水平軸): +1 正常, -1 反向 */
 #define M2_TRACK_DIR                 (-1)    /* Motor2 (垂直軸): +1 正常, -1 反向 */
 
 /* M1 過 HOME 正側時,LDR 相對 M2 的左右關係翻面,M2 輸出要反向。
@@ -101,6 +105,10 @@ extern "C" {
 #define M1_POS_SCALE                 1.10f   /* 未動 */
 #define M1_NEG_SCALE                 1.24f   /* 未動 */
 #define M1_MAX_STEP_HZ               60000U  /* 未動 */
+/* Slew rate limit: hz 每個 control cycle (5ms) 最多可變化量。
+ * 抑制 KP 跳階/誤差微抖造成的 hz 瞬間跳變,消除單側抖動源頭。
+ * 滿速 ~1120hz 從 0 起跳需 ceil(1120/300)=4 cycle≈20ms,追蹤夠快。 */
+#define M1_MAX_SLEW_HZ_PER_CYCLE     300
 
 /* =========================================================================
  *  控制 - Motor2 (垂直軸)
@@ -114,6 +122,7 @@ extern "C" {
 #define M2_POS_SCALE                 1.02f   /* 未動 */
 #define M2_NEG_SCALE                 1.16f   /* 未動 */
 #define M2_MAX_STEP_HZ               60000U  /* 未動 */
+#define M2_MAX_SLEW_HZ_PER_CYCLE     300
 
 /* =========================================================================
  *  串口

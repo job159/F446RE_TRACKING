@@ -85,6 +85,18 @@ HAL_StatusTypeDef MotorControl_ApplyCommand(MotorControl_HandleTypeDef *h,
 
   /* [2] 軸分離邏輯已移除:兩軸同時依各自誤差動作 */
 
+  /* [3] Slew rate limit: 限制 hz 每個 cycle 變化量,消除跳階/反向瞬間的機械抖動 */
+  {
+    int32_t prev1 = h->last_cmd.axis1_step_hz;
+    int32_t prev2 = h->last_cmd.axis2_step_hz;
+    int32_t s1_lim = (int32_t)M1_MAX_SLEW_HZ_PER_CYCLE;
+    int32_t s2_lim = (int32_t)M2_MAX_SLEW_HZ_PER_CYCLE;
+    if      (hz1 > prev1 + s1_lim) hz1 = prev1 + s1_lim;
+    else if (hz1 < prev1 - s1_lim) hz1 = prev1 - s1_lim;
+    if      (hz2 > prev2 + s2_lim) hz2 = prev2 + s2_lim;
+    else if (hz2 < prev2 - s2_lim) hz2 = prev2 - s2_lim;
+  }
+
   HAL_StatusTypeDef s1 = StepperTmc2209_SetSignedHz(&h->axis1, hz1);
   HAL_StatusTypeDef s2 = StepperTmc2209_SetSignedHz(&h->axis2, hz2);
 

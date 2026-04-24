@@ -4,6 +4,7 @@
 
 /* 一組軸的參數 (從 tracking_config.h 帶入) */
 typedef struct {
+  float    deadband;
   float    kp_small;
   float    kp_medium;
   float    kp_large;
@@ -14,12 +15,14 @@ typedef struct {
 } AxisParams_t;
 
 static const AxisParams_t M1_PARAMS = {
+  M1_ERR_DEADBAND,
   M1_KP_SMALL, M1_KP_MEDIUM, M1_KP_LARGE,
   M1_OUTPUT_GAIN, M1_POS_SCALE, M1_NEG_SCALE,
   M1_MAX_STEP_HZ
 };
 
 static const AxisParams_t M2_PARAMS = {
+  PID_ERR_DEADBAND,
   M2_KP_SMALL, M2_KP_MEDIUM, M2_KP_LARGE,
   M2_OUTPUT_GAIN, M2_POS_SCALE, M2_NEG_SCALE,
   M2_MAX_STEP_HZ
@@ -40,8 +43,8 @@ static int32_t run_axis(const AxisParams_t *p, float error)
 {
   float abs_e = (error < 0) ? -error : error;
 
-  /* 死區: 誤差太小直接停 */
-  if (abs_e <= PID_ERR_DEADBAND) return 0;
+  /* 死區: 誤差太小直接停 (M1/M2 可獨立) */
+  if (abs_e <= p->deadband) return 0;
 
   float kp  = pick_kp(p, abs_e);
   float out = kp * error * p->output_gain;
