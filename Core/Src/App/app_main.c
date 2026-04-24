@@ -325,6 +325,15 @@ static void run_control(uint32_t now)
         if (m2_flipped) cmd.axis2_step_hz = -cmd.axis2_step_hz;
       }
 #endif
+      /* 依最終物理方向套 pos/neg scale,補償機械兩向剛柔差 */
+      if (cmd.axis1_step_hz > 0)
+        cmd.axis1_step_hz = (int32_t)((float)cmd.axis1_step_hz * M1_POS_SCALE);
+      else if (cmd.axis1_step_hz < 0)
+        cmd.axis1_step_hz = (int32_t)((float)cmd.axis1_step_hz * M1_NEG_SCALE);
+      if (cmd.axis2_step_hz > 0)
+        cmd.axis2_step_hz = (int32_t)((float)cmd.axis2_step_hz * M2_POS_SCALE);
+      else if (cmd.axis2_step_hz < 0)
+        cmd.axis2_step_hz = (int32_t)((float)cmd.axis2_step_hz * M2_NEG_SCALE);
       MotorControl_ApplyCommand(&g.motor, &cmd, g.ctrl_period_ms);
     }
     break;

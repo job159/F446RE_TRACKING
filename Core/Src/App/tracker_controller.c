@@ -45,7 +45,8 @@ static int32_t run_axis(const AxisParams_t *p, float error)
 
   float kp  = pick_kp(p, abs_e);
   float out = kp * error * p->output_gain;
-  out *= (out >= 0) ? p->pos_scale : p->neg_scale;
+  /* pos/neg scale 不在這裡套,交給 app 層在最終物理 hz 決定後再套,
+   * 避免 TRACK_DIR 或條件翻號時 scale 套到反邊造成單側抖動。 */
 
   /* 輸出限幅 */
   if (out > (float)p->max_step_hz)  out =  (float)p->max_step_hz;
